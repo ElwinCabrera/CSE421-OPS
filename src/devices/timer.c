@@ -97,8 +97,6 @@ timer_sleep (int64_t ticks)
   sema_down(sleep_sema);
   intr_disable();
   thread_block();
-  //while (timer_elapsed (start) < ticks) 
-   // thread_yield ();
 }
 
 /* Sleeps for approximately MS milliseconds.  Interrupts must be

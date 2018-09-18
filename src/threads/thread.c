@@ -580,6 +580,31 @@ allocate_tid (void)
 
   return tid;
 }
+
+struct thread* iterate(struct list* list, enum iter_by by, bool find_hi_pri){
+
+	ASSERT(list == NULL);
+
+	struct list_elem* e;
+	
+	if(by == PRIORITY){
+
+
+	} else if(by == TIME_TO_WAKEUP){
+
+		for(e = list_begin(list); e != list_end(list); e = list_next(e)){
+			//TODO: find the smallest time_to_wakeup value and return it
+					// preferably use a good algorithm.
+		}
+	}else if(by == STATUS){
+		
+	} else if (by == TID) {
+
+	}
+
+	return thread_running();
+}
+
 
 /* Offset of `stack' member within `struct thread'.
    Used by switch.S, which can't figure it out on its own. */

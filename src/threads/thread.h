@@ -104,6 +104,16 @@ struct thread
     unsigned magic;                     /* Detects stack overflow. */
   };
 
+enum iter_by{
+	PRIORITY,
+	TIME_TO_WAKEUP,
+	STATUS,
+	TID
+};
+
+
+
+
 /* If false (default), use round-robin scheduler.
    If true, use multi-level feedback queue scheduler.
    Controlled by kernel command-line option "-o mlfqs". */
@@ -139,5 +149,7 @@ int thread_get_nice (void);
 void thread_set_nice (int);
 int thread_get_recent_cpu (void);
 int thread_get_load_avg (void);
+
+struct thread* iterate(struct list*, enum iter_by, bool find_hi_pri);
 
 #endif /* threads/thread.h */
