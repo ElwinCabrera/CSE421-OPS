@@ -37,6 +37,7 @@ timer_init (void)
 {
   pit_configure_channel (0, 2, TIMER_FREQ);
   intr_register_ext (0x20, timer_interrupt, "8254 Timer");
+  sema_init(sleep_sema,0);
 }
 
 /* Calibrates loops_per_tick, used to implement brief delays. */
@@ -90,10 +91,14 @@ void
 timer_sleep (int64_t ticks) 
 {
   int64_t start = timer_ticks ();
-
+  thread_current()->time_to_wakeup = start + ticks;
   ASSERT (intr_get_level () == INTR_ON);
+	
+  sema_down(sleep_sema);
+  intr_disable();
+  thread_block();
   //while (timer_elapsed (start) < ticks) 
-    //thread_yield ();
+   // thread_yield ();
 }
 
 /* Sleeps for approximately MS milliseconds.  Interrupts must be
