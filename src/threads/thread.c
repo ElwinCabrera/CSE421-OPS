@@ -500,7 +500,7 @@ next_thread_to_run (void)
 	struct thread *wakeup = get_specific_thread(&sleep_sema->waiters, TIME_TO_WAKEUP, false);
 	if(wakeup->time_to_wakeup >= timer_ticks()) {
 		sema_up(sleep_sema);
-		thread_unblock(wakeup);
+		//thread_unblock(wakeup);
 	}
     return list_entry (list_pop_front (&ready_list), struct thread, elem);
   }

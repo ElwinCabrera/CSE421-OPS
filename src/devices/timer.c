@@ -99,8 +99,8 @@ timer_sleep (int64_t ticks)
   ASSERT (intr_get_level () == INTR_ON);
 	
   sema_down(sleep_sema);
-  intr_disable();
-  thread_current()->status = THREAD_BLOCKED;
+  //intr_disable();
+  //thread_current()->status = THREAD_BLOCKED;
   //thread_block();
 }
 
