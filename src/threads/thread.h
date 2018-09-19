@@ -150,6 +150,7 @@ void thread_set_nice (int);
 int thread_get_recent_cpu (void);
 int thread_get_load_avg (void);
 
-struct thread* iterate(struct list*, enum iter_by, bool find_hi_pri);
+struct thread* get_specific_thread(struct list*, enum iter_by, bool find_hi_pri);
+bool compare_time_func(const struct list_elem*, const struct list_elem*, void*);
 
 #endif /* threads/thread.h */

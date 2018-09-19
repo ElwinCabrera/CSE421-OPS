@@ -3,6 +3,8 @@
 #include <inttypes.h>
 #include <round.h>
 #include <stdio.h>
+#include <stdlib.h>
+#include "../threads/malloc.h"
 #include "devices/pit.h"
 #include "threads/interrupt.h"
 #include "threads/synch.h"
@@ -16,6 +18,7 @@
 #if TIMER_FREQ > 1000
 #error TIMER_FREQ <= 1000 recommended
 #endif
+
 
 /* Number of timer ticks since OS booted. */
 static int64_t ticks;
@@ -37,6 +40,7 @@ timer_init (void)
 {
   pit_configure_channel (0, 2, TIMER_FREQ);
   intr_register_ext (0x20, timer_interrupt, "8254 Timer");
+  sleep_sema = (struct semaphore*) malloc( sizeof(struct semaphore));
   sema_init(sleep_sema,0);
 }
 
@@ -96,7 +100,8 @@ timer_sleep (int64_t ticks)
 	
   sema_down(sleep_sema);
   intr_disable();
-  thread_block();
+  thread_current()->status = THREAD_BLOCKED;
+  //thread_block();
 }
 
 /* Sleeps for approximately MS milliseconds.  Interrupts must be
@@ -247,3 +252,10 @@ real_time_delay (int64_t num, int32_t denom)
   ASSERT (denom % 1000 == 0);
   busy_wait (loops_per_tick * num / 1000 * TIMER_FREQ / (denom / 1000)); 
 }
+
+/*struct list* get_sema_waiters(){
+	return &sleep_sema->waiters;
+}
+struct semaphore* get_sleep_sema(){
+	return sleep_sema;
+}*/

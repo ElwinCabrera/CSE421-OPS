@@ -11,6 +11,7 @@
 #include "threads/switch.h"
 #include "threads/synch.h"
 #include "threads/vaddr.h"
+#include "../devices/timer.h"
 #ifdef USERPROG
 #include "userprog/process.h"
 #endif
@@ -492,10 +493,17 @@ alloc_frame (struct thread *t, size_t size)
 static struct thread *
 next_thread_to_run (void) 
 {
-  if (list_empty (&ready_list))
+
+  if (list_empty (&ready_list)){
     return idle_thread;
-  else
+  }else{
+	struct thread *wakeup = get_specific_thread(&sleep_sema->waiters, TIME_TO_WAKEUP, false);
+	if(wakeup->time_to_wakeup >= timer_ticks()) {
+		sema_up(sleep_sema);
+		thread_unblock(wakeup);
+	}
     return list_entry (list_pop_front (&ready_list), struct thread, elem);
+  }
 }
 
 /* Completes a thread switch by activating the new thread's page
@@ -581,28 +589,34 @@ allocate_tid (void)
   return tid;
 }
 
-struct thread* iterate(struct list* list, enum iter_by by, bool find_hi_pri){
+struct thread* get_specific_thread(struct list *list, enum iter_by by, bool find_hi_pri){
 
-	ASSERT(list == NULL);
+	ASSERT(list != NULL);
 
-	struct list_elem* e;
-	
+	struct list_elem *e;
+	struct thread *target_thread;
 	if(by == PRIORITY){
 
 
 	} else if(by == TIME_TO_WAKEUP){
-
-		for(e = list_begin(list); e != list_end(list); e = list_next(e)){
-			//TODO: find the smallest time_to_wakeup value and return it
-					// preferably use a good algorithm.
-		}
+		list_sort(list, &compare_time_func, NULL);
+		e = list_begin(list);
+		target_thread = list_entry(e, struct thread, elem);
+		
 	}else if(by == STATUS){
 		
 	} else if (by == TID) {
 
 	}
 
-	return thread_running();
+	return target_thread != NULL ? target_thread : running_thread();
+}
+
+bool compare_time_func(const struct list_elem *a, const struct list_elem *b, void *aux){
+	struct thread *t1 = list_entry(a,struct thread, elem);
+	struct thread *t2 = list_entry(b,struct thread, elem);
+
+	return (bool) t1->time_to_wakeup < t2->time_to_wakeup;
 }
 
 
