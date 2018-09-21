@@ -127,7 +127,7 @@ main (void)
   filesys_init (format_filesys);
 #endif
 
-  printf ("Boot complete.\n");
+	printf("Boot complete.\n");
   
   /* Run actions specified on kernel command line. */
   run_actions (argv);

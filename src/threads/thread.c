@@ -20,7 +20,7 @@
    Used to detect stack overflow.  See the big comment at the top
    of thread.h for details. */
 #define THREAD_MAGIC 0xcd6abf4b
-
+#define INT64_MAXX 9223372036854775807
 /* List of processes in THREAD_READY state, that is, processes
    that are ready to run but not actually running. */
 static struct list ready_list;
@@ -93,13 +93,14 @@ thread_init (void)
   lock_init (&tid_lock);
   list_init (&ready_list);
   list_init (&all_list);
+  list_init(&waiting_threads);
 
   /* Set up a thread structure for the running thread. */
   initial_thread = running_thread ();
   init_thread (initial_thread, "main", PRI_DEFAULT);
   initial_thread->status = THREAD_RUNNING;
   initial_thread->tid = allocate_tid ();
-  initial_thread->time_to_wakeup=-1;
+  initial_thread->time_to_wakeup= INT64_MAXX;
 }
 
 /* Starts preemptive thread scheduling by enabling interrupts.
@@ -462,7 +463,9 @@ init_thread (struct thread *t, const char *name, int priority)
   memset (t, 0, sizeof *t);
   t->status = THREAD_BLOCKED;
   strlcpy (t->name, name, sizeof t->name);
-  t->time_to_wakeup =-1;
+
+  t->time_to_wakeup = INT64_MAXX;
+
   t->stack = (uint8_t *) t + PGSIZE;
   t->priority = priority;
   t->magic = THREAD_MAGIC;
@@ -497,11 +500,18 @@ next_thread_to_run (void)
   if (list_empty (&ready_list)){
     return idle_thread;
   }else{
-	struct thread *wakeup = get_specific_thread(&sleep_sema->waiters, TIME_TO_WAKEUP, false);
-	if(wakeup->time_to_wakeup >= timer_ticks()) {
-		sema_up(sleep_sema);
-		//thread_unblock(wakeup);
-	}
+
+	/*if(!list_empty(&sleep_sema->waiters)){
+		printf("In my test\n\n"); 
+		struct thread *wakeup = get_specific_thread(&sleep_sema->waiters, TIME_TO_WAKEUP, false);
+	
+
+		if(timer_ticks() >= wakeup->time_to_wakeup && wakeup->time_to_wakeup != -1 ) {
+			ASSERT(wakeup != NULL);
+			sema_up(sleep_sema);
+			//thread_unblock(wakeup);
+		}
+	}*/
     return list_entry (list_pop_front (&ready_list), struct thread, elem);
   }
 }
@@ -562,6 +572,7 @@ thread_schedule_tail (struct thread *prev)
 static void
 schedule (void) 
 {
+  threads_to_wakeup();
   struct thread *cur = running_thread ();
   struct thread *next = next_thread_to_run ();
   struct thread *prev = NULL;
@@ -589,9 +600,35 @@ allocate_tid (void)
   return tid;
 }
 
+
+void threads_to_wakeup(void){
+
+	//ASSERT(!list_empty(&waiting_threads))
+	struct list_elem *e;
+	e = list_begin(&waiting_threads);
+	//uint32_t size = list_size(&waiting_threads);
+    while(e != NULL){ 
+		struct thread *wakeup = list_entry(e, struct thread, elem);
+		//check if wakeup is idle_thread
+		if(timer_ticks() >= wakeup->time_to_wakeup && is_thread(wakeup)){
+			ASSERT(wakeup != NULL);
+			ASSERT(is_thread(wakeup));
+			//ASSERT();
+			wakeup->time_to_wakeup = INT64_MAXX;
+			list_remove(&wakeup->elem);
+			thread_unblock(wakeup);
+		}
+		e = e->next;
+		//if(!(e->next !=NULL && e->next->prev ==NULL && e->next->next != NULL) || !(e->next != NULL && e->next->prev != NULL && e->next->next != NULL)) return;
+		//e = list_next(e);
+	}	
+}
+
 struct thread* get_specific_thread(struct list *list, enum iter_by by, bool find_hi_pri){
 
 	ASSERT(list != NULL);
+	ASSERT(!list_empty(list));
+	ASSERT(by != NULL);
 
 	struct list_elem *e;
 	struct thread *target_thread;
@@ -599,8 +636,7 @@ struct thread* get_specific_thread(struct list *list, enum iter_by by, bool find
 
 
 	} else if(by == TIME_TO_WAKEUP){
-		list_sort(list, &compare_time_func, NULL);
-		e = list_begin(list);
+		e = list_min(list, &compare_min_time_func, NULL);
 		target_thread = list_entry(e, struct thread, elem);
 		
 	}else if(by == STATUS){
@@ -609,10 +645,13 @@ struct thread* get_specific_thread(struct list *list, enum iter_by by, bool find
 
 	}
 
-	return target_thread != NULL ? target_thread : running_thread();
+	ASSERT(target_thread != NULL );
+	ASSERT(is_thread(target_thread))
+
+	return target_thread;
 }
 
-bool compare_time_func(const struct list_elem *a, const struct list_elem *b, void *aux){
+bool compare_min_time_func(const struct list_elem *a, const struct list_elem *b, void *aux){
 	struct thread *t1 = list_entry(a,struct thread, elem);
 	struct thread *t2 = list_entry(b,struct thread, elem);
 
