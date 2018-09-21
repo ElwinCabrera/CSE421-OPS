@@ -99,7 +99,7 @@ timer_sleep (int64_t ticks)
 
   enum intr_level old_status = intr_disable();
   thread_current()->time_to_wakeup = start + ticks;
-  list_remove(&thread_current()->elem);
+  //list_remove(&thread_current()->elem);
   list_push_back(&waiting_threads, &thread_current()->elem);
   thread_block();
   intr_set_level(old_status);
