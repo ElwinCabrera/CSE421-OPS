@@ -500,18 +500,6 @@ next_thread_to_run (void)
   if (list_empty (&ready_list)){
     return idle_thread;
   }else{
-
-	/*if(!list_empty(&sleep_sema->waiters)){
-		printf("In my test\n\n"); 
-		struct thread *wakeup = get_specific_thread(&sleep_sema->waiters, TIME_TO_WAKEUP, false);
-	
-
-		if(timer_ticks() >= wakeup->time_to_wakeup && wakeup->time_to_wakeup != -1 ) {
-			ASSERT(wakeup != NULL);
-			sema_up(sleep_sema);
-			//thread_unblock(wakeup);
-		}
-	}*/
     return list_entry (list_pop_front (&ready_list), struct thread, elem);
   }
 }
@@ -572,7 +560,7 @@ thread_schedule_tail (struct thread *prev)
 static void
 schedule (void) 
 {
-  threads_to_wakeup();
+  threads_to_wakeup(); // check for threads that need to be woken up 
   struct thread *cur = running_thread ();
   struct thread *next = next_thread_to_run ();
   struct thread *prev = NULL;
@@ -600,7 +588,12 @@ allocate_tid (void)
   return tid;
 }
 
-
+/* 
+	Iterate over our waiting_threads list and find all treads that are ready to wakeup.
+	If a thread is ready to be woken up reset the threads time to wakeup to a maximum value,
+	then remove it from the sleeping list, and finally unclock the thread. The unblock function 
+	changes the thread's status to THREAD_READY and puts in in the ready list.
+*/
 void threads_to_wakeup(void){
 
 	//ASSERT(!list_empty(&waiting_threads))
@@ -610,6 +603,7 @@ void threads_to_wakeup(void){
     while(e != NULL){ 
 		struct thread *wakeup = list_entry(e, struct thread, elem);
 		//check if wakeup is idle_thread
+		if(wakeup == idle_thread) continue;
 		if(timer_ticks() >= wakeup->time_to_wakeup && is_thread(wakeup)){
 			ASSERT(wakeup != NULL);
 			ASSERT(is_thread(wakeup));
@@ -619,12 +613,10 @@ void threads_to_wakeup(void){
 			thread_unblock(wakeup);
 		}
 		e = e->next;
-		//if(!(e->next !=NULL && e->next->prev ==NULL && e->next->next != NULL) || !(e->next != NULL && e->next->prev != NULL && e->next->next != NULL)) return;
-		//e = list_next(e);
 	}	
 }
 
-struct thread* get_specific_thread(struct list *list, enum iter_by by, bool find_hi_pri){
+/*struct thread* get_specific_thread(struct list *list, enum iter_by by, bool find_hi_pri){
 
 	ASSERT(list != NULL);
 	ASSERT(!list_empty(list));
@@ -656,7 +648,7 @@ bool compare_min_time_func(const struct list_elem *a, const struct list_elem *b,
 	struct thread *t2 = list_entry(b,struct thread, elem);
 
 	return (bool) t1->time_to_wakeup < t2->time_to_wakeup;
-}
+}*/
 
 
 /* Offset of `stack' member within `struct thread'.

@@ -90,6 +90,15 @@ timer_elapsed (int64_t then)
 
 /* Sleeps for approximately TICKS timer ticks.  Interrupts must
    be turned on. */
+/*
+	Steps took to implement:
+		1. Get curent ticks in the beggining (line 109)
+		2. Disable interupts and save the old state (line 110)
+		3. set the curents thread time to wakeup (line 111)
+		4. Add the current thread to our list, (defined in ../threads/thread.h) (line 112) 
+		5. Block the current thread (the block function automatically picks another thread to run) (line 113)
+		6. Restore the old interrupt state that we saved earlier (line 114)
+*/
 void
 timer_sleep (int64_t ticks) 
 {
@@ -99,7 +108,6 @@ timer_sleep (int64_t ticks)
 
   enum intr_level old_status = intr_disable();
   thread_current()->time_to_wakeup = start + ticks;
-  //list_remove(&thread_current()->elem);
   list_push_back(&waiting_threads, &thread_current()->elem);
   thread_block();
   intr_set_level(old_status);

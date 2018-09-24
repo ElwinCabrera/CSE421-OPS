@@ -14,6 +14,8 @@ enum thread_status
     THREAD_DYING        /* About to be destroyed. */
   };
 
+
+/* This is a list of all threads that are waiting */
 struct list waiting_threads;
 
 /* Thread identifier type.
@@ -152,9 +154,9 @@ void thread_set_nice (int);
 int thread_get_recent_cpu (void);
 int thread_get_load_avg (void);
 
-void put_thread_to_sleep(int64_t start, int64_t ticks);
+
 void threads_to_wakeup(void);
-struct thread* get_specific_thread(struct list*, enum iter_by, bool find_hi_pri);
-bool compare_min_time_func(const struct list_elem*, const struct list_elem*, void*);
+//struct thread* get_specific_thread(struct list*, enum iter_by, bool find_hi_pri);
+//bool compare_min_time_func(const struct list_elem*, const struct list_elem*, void*);
 
 #endif /* threads/thread.h */
