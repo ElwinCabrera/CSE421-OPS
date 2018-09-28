@@ -51,7 +51,6 @@ timer_calibrate (void)
 
   ASSERT (intr_get_level () == INTR_ON);
   printf ("Calibrating timer...  ");
-
   /* Approximate loops_per_tick as the largest power-of-two
      still less than one timer tick. */
   loops_per_tick = 1u << 10;
@@ -68,6 +67,7 @@ timer_calibrate (void)
       loops_per_tick |= test_bit;
 
   printf ("%'"PRIu64" loops/s.\n", (uint64_t) loops_per_tick * TIMER_FREQ);
+
 }
 
 /* Returns the number of timer ticks since the OS booted. */
