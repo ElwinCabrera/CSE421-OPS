@@ -3,6 +3,8 @@
 #include <inttypes.h>
 #include <round.h>
 #include <stdio.h>
+#include <stdlib.h>
+#include "../threads/malloc.h"
 #include "devices/pit.h"
 #include "threads/interrupt.h"
 #include "threads/synch.h"
@@ -16,6 +18,7 @@
 #if TIMER_FREQ > 1000
 #error TIMER_FREQ <= 1000 recommended
 #endif
+
 
 /* Number of timer ticks since OS booted. */
 static int64_t ticks;
@@ -37,6 +40,7 @@ timer_init (void)
 {
   pit_configure_channel (0, 2, TIMER_FREQ);
   intr_register_ext (0x20, timer_interrupt, "8254 Timer");
+
 }
 
 /* Calibrates loops_per_tick, used to implement brief delays. */
@@ -47,7 +51,6 @@ timer_calibrate (void)
 
   ASSERT (intr_get_level () == INTR_ON);
   printf ("Calibrating timer...  ");
-
   /* Approximate loops_per_tick as the largest power-of-two
      still less than one timer tick. */
   loops_per_tick = 1u << 10;
@@ -64,6 +67,7 @@ timer_calibrate (void)
       loops_per_tick |= test_bit;
 
   printf ("%'"PRIu64" loops/s.\n", (uint64_t) loops_per_tick * TIMER_FREQ);
+
 }
 
 /* Returns the number of timer ticks since the OS booted. */
@@ -86,15 +90,28 @@ timer_elapsed (int64_t then)
 
 /* Sleeps for approximately TICKS timer ticks.  Interrupts must
    be turned on. */
+/*
+	Steps took to implement:
+		1. Get curent ticks in the beggining (line 109)
+		2. Disable interupts and save the old state (line 110)
+		3. set the curents thread time to wakeup (line 111)
+		4. Add the current thread to our list, (defined in ../threads/thread.h) (line 112) 
+		5. Block the current thread (the block function automatically picks another thread to run) (line 113)
+		6. Restore the old interrupt state that we saved earlier (line 114)
+*/
 void
 timer_sleep (int64_t ticks) 
 {
   int64_t start = timer_ticks ();
-
+  
   ASSERT (intr_get_level () == INTR_ON);
 
-  while (timer_elapsed (start) < ticks) 
-    thread_yield ();
+  enum intr_level old_status = intr_disable();
+  thread_current()->time_to_wakeup = start + ticks;
+  list_push_back(&waiting_threads, &thread_current()->elem);
+  thread_block();
+  intr_set_level(old_status);
+
 }
 
 /* Sleeps for approximately MS milliseconds.  Interrupts must be
@@ -245,3 +262,10 @@ real_time_delay (int64_t num, int32_t denom)
   ASSERT (denom % 1000 == 0);
   busy_wait (loops_per_tick * num / 1000 * TIMER_FREQ / (denom / 1000)); 
 }
+
+/*struct list* get_sema_waiters(){
+	return &sleep_sema->waiters;
+}
+struct semaphore* get_sleep_sema(){
+	return sleep_sema;
+}*/

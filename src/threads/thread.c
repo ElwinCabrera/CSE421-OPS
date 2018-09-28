@@ -11,6 +11,7 @@
 #include "threads/switch.h"
 #include "threads/synch.h"
 #include "threads/vaddr.h"
+#include "../devices/timer.h"
 #ifdef USERPROG
 #include "userprog/process.h"
 #endif
@@ -19,7 +20,7 @@
    Used to detect stack overflow.  See the big comment at the top
    of thread.h for details. */
 #define THREAD_MAGIC 0xcd6abf4b
-
+#define INT64_MAXX 9223372036854775807
 /* List of processes in THREAD_READY state, that is, processes
    that are ready to run but not actually running. */
 static struct list ready_list;
@@ -92,12 +93,14 @@ thread_init (void)
   lock_init (&tid_lock);
   list_init (&ready_list);
   list_init (&all_list);
+  list_init(&waiting_threads);
 
   /* Set up a thread structure for the running thread. */
   initial_thread = running_thread ();
   init_thread (initial_thread, "main", PRI_DEFAULT);
   initial_thread->status = THREAD_RUNNING;
   initial_thread->tid = allocate_tid ();
+  initial_thread->time_to_wakeup= INT64_MAXX;
 }
 
 /* Starts preemptive thread scheduling by enabling interrupts.
@@ -460,6 +463,9 @@ init_thread (struct thread *t, const char *name, int priority)
   memset (t, 0, sizeof *t);
   t->status = THREAD_BLOCKED;
   strlcpy (t->name, name, sizeof t->name);
+
+  t->time_to_wakeup = INT64_MAXX;
+
   t->stack = (uint8_t *) t + PGSIZE;
   t->priority = priority;
   t->magic = THREAD_MAGIC;
@@ -490,10 +496,12 @@ alloc_frame (struct thread *t, size_t size)
 static struct thread *
 next_thread_to_run (void) 
 {
-  if (list_empty (&ready_list))
+
+  if (list_empty (&ready_list)){
     return idle_thread;
-  else
+  }else{
     return list_entry (list_pop_front (&ready_list), struct thread, elem);
+  }
 }
 
 /* Completes a thread switch by activating the new thread's page
@@ -552,6 +560,7 @@ thread_schedule_tail (struct thread *prev)
 static void
 schedule (void) 
 {
+  threads_to_wakeup(); // check for threads that need to be woken up 
   struct thread *cur = running_thread ();
   struct thread *next = next_thread_to_run ();
   struct thread *prev = NULL;
@@ -578,6 +587,69 @@ allocate_tid (void)
 
   return tid;
 }
+
+/* 
+	Iterate over our waiting_threads list and find all treads that are ready to wakeup.
+	If a thread is ready to be woken up reset the threads time to wakeup to a maximum value,
+	then remove it from the sleeping list, and finally unclock the thread. The unblock function 
+	changes the thread's status to THREAD_READY and puts in in the ready list.
+*/
+void threads_to_wakeup(void){
+
+	//ASSERT(!list_empty(&waiting_threads))
+	struct list_elem *e;
+	e = list_begin(&waiting_threads);
+	//uint32_t size = list_size(&waiting_threads);
+    while(e != NULL){ 
+		struct thread *wakeup = list_entry(e, struct thread, elem);
+		//check if wakeup is idle_thread
+		if(wakeup == idle_thread) continue;
+		if(timer_ticks() >= wakeup->time_to_wakeup && is_thread(wakeup)){
+			ASSERT(wakeup != NULL);
+			ASSERT(is_thread(wakeup));
+			//ASSERT();
+			wakeup->time_to_wakeup = INT64_MAXX;
+			list_remove(&wakeup->elem);
+			thread_unblock(wakeup);
+		}
+		e = e->next;
+	}	
+}
+
+/*struct thread* get_specific_thread(struct list *list, enum iter_by by, bool find_hi_pri){
+
+	ASSERT(list != NULL);
+	ASSERT(!list_empty(list));
+	ASSERT(by != NULL);
+
+	struct list_elem *e;
+	struct thread *target_thread;
+	if(by == PRIORITY){
+
+
+	} else if(by == TIME_TO_WAKEUP){
+		e = list_min(list, &compare_min_time_func, NULL);
+		target_thread = list_entry(e, struct thread, elem);
+		
+	}else if(by == STATUS){
+		
+	} else if (by == TID) {
+
+	}
+
+	ASSERT(target_thread != NULL );
+	ASSERT(is_thread(target_thread))
+
+	return target_thread;
+}
+
+bool compare_min_time_func(const struct list_elem *a, const struct list_elem *b, void *aux){
+	struct thread *t1 = list_entry(a,struct thread, elem);
+	struct thread *t2 = list_entry(b,struct thread, elem);
+
+	return (bool) t1->time_to_wakeup < t2->time_to_wakeup;
+}*/
+
 
 /* Offset of `stack' member within `struct thread'.
    Used by switch.S, which can't figure it out on its own. */

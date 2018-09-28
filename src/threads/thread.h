@@ -14,6 +14,10 @@ enum thread_status
     THREAD_DYING        /* About to be destroyed. */
   };
 
+
+/* This is a list of all threads that are waiting */
+struct list waiting_threads;
+
 /* Thread identifier type.
    You can redefine this to whatever type you like. */
 typedef int tid_t;
@@ -93,6 +97,8 @@ struct thread
     /* Shared between thread.c and synch.c. */
     struct list_elem elem;              /* List element. */
 
+	int64_t time_to_wakeup;			/* If thread is sleeping sets the time to wake*/
+
 #ifdef USERPROG
     /* Owned by userprog/process.c. */
     uint32_t *pagedir;                  /* Page directory. */
@@ -101,6 +107,16 @@ struct thread
     /* Owned by thread.c. */
     unsigned magic;                     /* Detects stack overflow. */
   };
+
+enum iter_by{
+	PRIORITY,
+	TIME_TO_WAKEUP,
+	STATUS,
+	TID
+};
+
+
+
 
 /* If false (default), use round-robin scheduler.
    If true, use multi-level feedback queue scheduler.
@@ -137,5 +153,10 @@ int thread_get_nice (void);
 void thread_set_nice (int);
 int thread_get_recent_cpu (void);
 int thread_get_load_avg (void);
+
+
+void threads_to_wakeup(void);
+//struct thread* get_specific_thread(struct list*, enum iter_by, bool find_hi_pri);
+//bool compare_min_time_func(const struct list_elem*, const struct list_elem*, void*);
 
 #endif /* threads/thread.h */
