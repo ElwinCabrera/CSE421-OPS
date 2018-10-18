@@ -22,6 +22,7 @@ struct lock
   {
     struct thread *holder;      /* Thread holding lock (for debugging). */
     struct semaphore semaphore; /* Binary semaphore controlling access. */
+	struct list donor_list;
   };
 
 void lock_init (struct lock *);
@@ -40,6 +41,8 @@ void cond_init (struct condition *);
 void cond_wait (struct condition *, struct lock *);
 void cond_signal (struct condition *, struct lock *);
 void cond_broadcast (struct condition *, struct lock *);
+
+bool compare_pri_static_decend(const struct list_elem *a, const struct list_elem *b, void *aux);
 
 /* Optimization barrier.
 

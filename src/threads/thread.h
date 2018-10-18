@@ -17,7 +17,7 @@ enum thread_status
 
 /* This is a list of all threads that are waiting */
 struct list waiting_threads;
-
+struct list donors_list;
 /* Thread identifier type.
    You can redefine this to whatever type you like. */
 typedef int tid_t;
@@ -92,12 +92,24 @@ struct thread
     char name[16];                      /* Name (for debugging purposes). */
     uint8_t *stack;                     /* Saved stack pointer. */
     int priority;                       /* Priority. */
+	int static_priority;				/* Priority that was initually given and will not change */
     struct list_elem allelem;           /* List element for all threads list. */
 
     /* Shared between thread.c and synch.c. */
     struct list_elem elem;              /* List element. */
-
+	struct list_elem donorelem;
 	int64_t time_to_wakeup;			/* If thread is sleeping sets the time to wake*/
+
+	int8_t nice;			/* Nice value to determine how "nice" a thread should be to others */
+
+	/* How much time this thread "recently" received CPU recources. Each time 
+       a timer interrupt occurs recent_cpu is incremented by 1 for the running thread only, 
+	   unless idle thread. Also once per second recent_cpu is recalculated for that thread. 
+       This value can be negative*/
+	int recent_cpu; 
+
+	struct lock *requested_lock;
+	struct thread *donate_pri_to;
 
 #ifdef USERPROG
     /* Owned by userprog/process.c. */
@@ -107,15 +119,6 @@ struct thread
     /* Owned by thread.c. */
     unsigned magic;                     /* Detects stack overflow. */
   };
-
-enum iter_by{
-	PRIORITY,
-	TIME_TO_WAKEUP,
-	STATUS,
-	TID
-};
-
-
 
 
 /* If false (default), use round-robin scheduler.
@@ -154,9 +157,13 @@ void thread_set_nice (int);
 int thread_get_recent_cpu (void);
 int thread_get_load_avg (void);
 
+int calculate_recent_cpu(void);
+int calculate_load_avg(void);
 
 void threads_to_wakeup(void);
-//struct thread* get_specific_thread(struct list*, enum iter_by, bool find_hi_pri);
-//bool compare_min_time_func(const struct list_elem*, const struct list_elem*, void*);
-
+void check_for_higher_priority_thread(void);
+void donate_priority_for_lock( struct lock *);
+void remove_from_donors_list(struct thread *,struct lock *);
+void sort_ready(void);
+bool compare_priority_decend(const struct list_elem*, const struct list_elem*, void*);
 #endif /* threads/thread.h */
