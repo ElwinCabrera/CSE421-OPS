@@ -98,7 +98,6 @@ struct thread
     /* Shared between thread.c and synch.c. */
     struct list_elem elem;              /* List element. */
 	struct list_elem donorelem;
-	struct list_elem initpri_elem;
 	struct list donor_list;
 	int64_t time_to_wakeup;			/* If thread is sleeping sets the time to wake*/
 
@@ -166,7 +165,7 @@ int calculate_load_avg(void);
 
 void threads_to_wakeup(void);
 void check_for_higher_priority_thread(void);
-void donate_priority_for_lock( struct lock *);
+void donate_priority( struct lock *);
 void remove_from_donors_list(struct thread *,struct lock *);
 bool t_exist_in_list(struct list *list, struct thread *t);
 bool compare_priority_decend(const struct list_elem*, const struct list_elem*, void*);

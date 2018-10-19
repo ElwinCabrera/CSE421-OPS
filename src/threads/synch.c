@@ -189,10 +189,6 @@ lock_init (struct lock *lock)
 
   lock->holder = NULL;
   sema_init (&lock->semaphore, 1);
-  list_init(&lock->donor_list);
-  list_init(&lock->init_priorities);
-  lock->first = true;
-  //lock->pointer_elem = list_begin(&lock->init_priorities);
 }
 
 /* Acquires LOCK, sleeping until it becomes available if
@@ -215,23 +211,10 @@ lock_acquire (struct lock *lock)
 	// than the thread that currently has the lock. If so then donate to the thread that 
 	// has the lock
 	struct thread *donor = thread_current();
-	/*if(lock->holder != NULL && donor->priority > lock->holder->priority){
-		if(!list_empty(&lock->semaphore.waiters)){
-			struct thread *last_waiter = list_entry(list_front(&lock->semaphore.waiters), 
-													struct thread, elem);
-			donor->donate_pri_to = last_waiter;
-		} else {
-			donor->donate_pri_to = lock->holder;
-		}
-		
-		donor->requested_lock = lock;
-		list_push_back(&lock->holder->donor_list, &donor->donorelem);
-		donate_priority_for_lock(lock);
-	} */
 	if(lock->holder != NULL && donor->priority > lock->holder->priority){
 		donor->requested_lock = lock;
 		list_push_back(&lock->holder->donor_list, &donor->donorelem);
-		donate_priority_for_lock(lock);
+		donate_priority(lock);
 	}
   sema_down (&lock->semaphore);
   donor->requested_lock = NULL;
