@@ -96,7 +96,6 @@ thread_init (void)
   list_init (&ready_list);
   list_init (&all_list);
   list_init(&waiting_threads);
-  list_init(&donors_list);
 
   /* Set up a thread structure for the running thread. */
   initial_thread = running_thread ();
@@ -503,7 +502,7 @@ init_thread (struct thread *t, const char *name, int priority)
 
   t->time_to_wakeup = INT64_MAXX;
   t->nice = thread_get_nice();
-  
+  list_init(&t->donor_list);
 
   t->stack = (uint8_t *) t + PGSIZE;
   t->priority = priority;
@@ -601,7 +600,7 @@ static void
 schedule (void) 
 {
   threads_to_wakeup(); // check for threads that need to be woken up
-  list_sort(&ready_list, &compare_priority_decend, NULL); 
+  //list_sort(&ready_list, &compare_priority_decend, NULL); 
   struct thread *cur = running_thread ();
   struct thread *next = next_thread_to_run ();
   struct thread *prev = NULL;
@@ -678,62 +677,77 @@ void check_for_higher_priority_thread(void){
 }
 
 void donate_priority_for_lock(struct lock *lock){
-	int8_t max_pri = 0;
+	//int max_pri = 0;
 	// handle empy list
-	/*struct list_elem *e = list_begin(&donors_list);
-	while(e != NULL){
-		struct thread *max_donor = list_entry(e, struct thread, elem);
-		if(is_thread(max_donor) && max_pri < max_donor->priority 
-		   && max_donor->requested_lock == lock) max_pri = max_donor->priority;
-		
-		e = e->next;
+
+	/*struct list_elem *e;
+	struct thread *holder = thread_current();
+    for(e = list_begin(&holder->donor_list); e != list_end(&holser->donor_list); e = list_next(e)){
+         struct thread *t = list_entry(e, struct thread, donorelem);
+         if(is_thread(t) && 
+			t->requested_lock == lock && 
+			max_pri < t->priority ) max_pri = t->priority;
 	}*/
 
-	struct list_elem *e;
-    for(e = list_begin(&lock->donor_list); e != list_end(&lock->donor_list); e = list_next(e)){
-         struct thread *t = list_entry(e, struct thread, donorelem);
-         if(is_thread(t) && max_pri < t->priority ) max_pri = t->priority;
-	}
 
+	/*while(holder != NULL && is_thread(holder)){
+		if(max_pri > holder-> priority) holder->priority = max_pri;		
+		holder = holder->donate_pri_to;
+	}*/
 
-	struct thread *t = thread_current()->donate_pri_to; //donor->donate_pri_to;
-	while(t != NULL && is_thread(t)){
-		t->priority = max_pri;
-		t = t->donate_pri_to;
-	}
+  struct thread *donor = thread_current();
+  //struct lock *l = t->requested_lock;
+  lock = donor->requested_lock;
+  while (lock != NULL  ){
+      lock->holder->priority = donor->priority;
+      donor = lock->holder;
+      lock = donor->requested_lock;
+    }
 	
 }
 
 
-void remove_from_donors_list(struct thread *potential_donor, struct lock *lock){
-	/*struct list_elem *e = list_begin(&donors_list);
-	struct list_elem *prev_e;
-	bool stuck_in_loop = false;
-	while(e != NULL && !stuck_in_loop){
-		prev_e = e;
-		struct thread *t = list_entry(e, struct thread, elem);
-		if(is_thread(t) && potential_donor == t && potential_donor->requested_lock == lock) {
-			struct list_elem *rmv = e;
-			e = e->next;
-			list_remove(rmv);
-		} else {
-			e = e->next;
-		}
-		if(prev_e == e) stuck_in_loop = true;
-	}*/
-	struct list_elem *e;
-	for(e = list_begin(&lock->donor_list); e != list_end(&lock->donor_list); e = list_next(e)){
+void remove_from_donors_list(struct thread *holder, struct lock *lock){
+	bool is_removed = false;
+	struct list_elem *e = list_begin(&holder->donor_list);
+	while(e != list_end(&holder->donor_list)){
 		struct thread *t = list_entry(e, struct thread, donorelem);
-		if(is_thread(t) && potential_donor == t ) list_remove(e);
+		if(is_thread(t) && t->requested_lock == lock){
+			struct list_elem *rmv = e;
+			e = list_next(e); 
+			list_remove(rmv);
+			is_removed = true;
+		} else {
+			e = list_next(e);
+		}
 	}
 
-	if(potential_donor->static_priority != potential_donor->priority) potential_donor->priority = potential_donor->static_priority; 
+	holder->priority = holder->static_priority;
+	
+	if(!list_empty(&holder->donor_list)){
+		int max_pri =0;
+		struct list_elem *max_elem = list_max(&holder->donor_list, &compare_priority_decend, NULL);
+		struct thread *next_donor = list_entry(max_elem, struct thread, donorelem);
+		if(next_donor->priority > holder->priority) holder->priority = next_donor->priority;
+	}
 }
 
-void sort_ready(void){
-	list_sort(&ready_list, &compare_priority_decend, NULL);
+bool t_exist_in_list(struct list *list,struct thread *t){
+
+	if(!list_empty(list)){	
+		struct list_elem *e = list_begin(list);
+		struct thread *test = list_entry(e, struct thread, initpri_elem);
+		if(test == t) return true;
+		while(is_thread(test) && e != NULL){
+			test = list_entry(e, struct thread, initpri_elem);
+			if(test == t) return true;
+			e = e->next;
+		}
+	}
+	return false;
 }
-bool compare_priority_decend(const struct list_elem *a, const struct list_elem *b, void *aux){
+
+bool compare_priority_decend(const struct list_elem *a, const struct list_elem *b, void *aux UNUSED){
 	const struct thread *t1 = list_entry(a, struct thread, elem);
 	const struct thread *t2 = list_entry(b, struct thread, elem);
 

@@ -17,7 +17,6 @@ enum thread_status
 
 /* This is a list of all threads that are waiting */
 struct list waiting_threads;
-struct list donors_list;
 /* Thread identifier type.
    You can redefine this to whatever type you like. */
 typedef int tid_t;
@@ -92,12 +91,15 @@ struct thread
     char name[16];                      /* Name (for debugging purposes). */
     uint8_t *stack;                     /* Saved stack pointer. */
     int priority;                       /* Priority. */
+	int donated_priority;
 	int static_priority;				/* Priority that was initually given and will not change */
     struct list_elem allelem;           /* List element for all threads list. */
 
     /* Shared between thread.c and synch.c. */
     struct list_elem elem;              /* List element. */
 	struct list_elem donorelem;
+	struct list_elem initpri_elem;
+	struct list donor_list;
 	int64_t time_to_wakeup;			/* If thread is sleeping sets the time to wake*/
 
 	int8_t nice;			/* Nice value to determine how "nice" a thread should be to others */
@@ -109,7 +111,9 @@ struct thread
 	int recent_cpu; 
 
 	struct lock *requested_lock;
+	struct lock *holding_locks;
 	struct thread *donate_pri_to;
+	bool is_donor;
 
 #ifdef USERPROG
     /* Owned by userprog/process.c. */
@@ -164,6 +168,6 @@ void threads_to_wakeup(void);
 void check_for_higher_priority_thread(void);
 void donate_priority_for_lock( struct lock *);
 void remove_from_donors_list(struct thread *,struct lock *);
-void sort_ready(void);
+bool t_exist_in_list(struct list *list, struct thread *t);
 bool compare_priority_decend(const struct list_elem*, const struct list_elem*, void*);
 #endif /* threads/thread.h */
