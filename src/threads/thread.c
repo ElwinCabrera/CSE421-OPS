@@ -363,12 +363,11 @@ thread_foreach (thread_action_func *func, void *aux)
 void
 thread_set_priority (int new_priority) 
 {
-  //enum intr_level old_level = intr_disable();
-  int old_pri_static = thread_current()->static_priority;
-  int old_pri = thread_current()->priority;
-  thread_current ()->static_priority = new_priority;
-
-  //intr_set_level(old_level);
+  struct thread *cur = thread_current();
+  int old_pri_static = cur->static_priority;
+  cur->static_priority = new_priority;
+  if(list_empty(&cur->donor_list) && cur->static_priority != cur->priority) 
+	cur->priority = cur->static_priority; 
   if(old_pri_static > new_priority) check_for_higher_priority_thread(true);
 }
 
@@ -707,7 +706,6 @@ void donate_priority(struct lock *lock){
 
 
 void remove_from_donors_list(struct thread *holder, struct lock *lock){
-	bool is_removed = false;
 	struct list_elem *e = list_begin(&holder->donor_list);
 	while(e != list_end(&holder->donor_list)){
 		struct thread *t = list_entry(e, struct thread, donorelem);
@@ -715,7 +713,6 @@ void remove_from_donors_list(struct thread *holder, struct lock *lock){
 			struct list_elem *rmv = e;
 			e = list_next(e); 
 			list_remove(rmv);
-			is_removed = true;
 		} else {
 			e = list_next(e);
 		}
@@ -724,27 +721,12 @@ void remove_from_donors_list(struct thread *holder, struct lock *lock){
 	holder->priority = holder->static_priority;
 	
 	if(!list_empty(&holder->donor_list)){
-		int max_pri =0;
 		struct list_elem *max_elem = list_max(&holder->donor_list, &compare_priority_decend, NULL);
 		struct thread *next_donor = list_entry(max_elem, struct thread, donorelem);
 		if(next_donor->priority > holder->priority) holder->priority = next_donor->priority;
 	}
 }
 
-/*bool t_exist_in_list(struct list *list,struct thread *t){
-
-	if(!list_empty(list)){	
-		struct list_elem *e = list_begin(list);
-		struct thread *test = list_entry(e, struct thread, initpri_elem);
-		if(test == t) return true;
-		while(is_thread(test) && e != NULL){
-			test = list_entry(e, struct thread, initpri_elem);
-			if(test == t) return true;
-			e = e->next;
-		}
-	}
-	return false;
-}*/
 
 bool compare_priority_decend(const struct list_elem *a, const struct list_elem *b, void *aux UNUSED){
 	const struct thread *t1 = list_entry(a, struct thread, elem);
