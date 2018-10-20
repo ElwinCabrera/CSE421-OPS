@@ -17,6 +17,7 @@ enum thread_status
 
 /* This is a list of all threads that are waiting */
 struct list waiting_threads;
+//bool check_static;
 /* Thread identifier type.
    You can redefine this to whatever type you like. */
 typedef int tid_t;
@@ -164,7 +165,8 @@ int calculate_recent_cpu(void);
 int calculate_load_avg(void);
 
 void threads_to_wakeup(void);
-void check_for_higher_priority_thread(void);
+void check_for_higher_priority_thread(bool check_static);
+void compare_priority(int p1, int p2);
 void donate_priority( struct lock *);
 void remove_from_donors_list(struct thread *,struct lock *);
 bool t_exist_in_list(struct list *list, struct thread *t);

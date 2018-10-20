@@ -69,7 +69,7 @@ sema_down (struct semaphore *sema)
   while (sema->value == 0) 
     {
 	
-      list_insert_ordered(&sema->waiters, &thread_current ()->elem, &compare_pri_static_decend, NULL);
+      list_insert_ordered(&sema->waiters, &thread_current ()->elem, &compare_priority_decend, NULL);
       thread_block ();
     }
   sema->value--;
@@ -118,6 +118,8 @@ sema_up (struct semaphore *sema)
   bool thread_unblocked = false;
 
   if (!list_empty (&sema->waiters)){
+	list_sort(&sema->waiters, &compare_priority_decend, NULL);
+	
 	signal_thread = list_entry(list_pop_front(&sema->waiters), struct thread, elem); 
 		thread_unblock (signal_thread);
 		thread_unblocked = true;
@@ -125,7 +127,7 @@ sema_up (struct semaphore *sema)
   sema->value++;
 
   if(thread_unblocked && 
-    signal_thread->priority > thread_current()->priority) check_for_higher_priority_thread();
+    signal_thread->priority > thread_current()->priority) check_for_higher_priority_thread(false);
 
   intr_set_level (old_level);
 }
@@ -360,11 +362,3 @@ cond_broadcast (struct condition *cond, struct lock *lock)
     cond_signal (cond, lock);
 }
 
-bool compare_pri_static_decend(const struct list_elem *a, const struct list_elem *b, void *aux){
-	const struct thread *t1 = list_entry(a, struct thread, elem);
-	const struct thread *t2 = list_entry(b, struct thread, elem);
-	
-	//if(t1->static_priority > t2->static_priority) return true;
-	return t1->static_priority > t2->static_priority ? true : false;
-
-}

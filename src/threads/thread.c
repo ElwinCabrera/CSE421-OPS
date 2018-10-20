@@ -62,6 +62,8 @@ static unsigned thread_ticks;   /* # of timer ticks since last yield. */
    Controlled by kernel command-line option "-o mlfqs". */
 bool thread_mlfqs;
 
+bool check_static;
+
 static void kernel_thread (thread_func *, void *aux);
 
 static void idle (void *aux UNUSED);
@@ -92,6 +94,8 @@ thread_init (void)
 {
   ASSERT (intr_get_level () == INTR_OFF);
 
+  check_static = false;
+	
   lock_init (&tid_lock);
   list_init (&ready_list);
   list_init (&all_list);
@@ -224,7 +228,7 @@ thread_create (const char *name, int priority,
   thread_unblock (t);
   //check if running threads priority is less than the new thread 
 	//if so then schedule
-	if( priority > thread_current()->priority) check_for_higher_priority_thread();
+	if( priority > thread_current()->priority) check_for_higher_priority_thread(false);
   return tid;
 }
 
@@ -359,11 +363,13 @@ thread_foreach (thread_action_func *func, void *aux)
 void
 thread_set_priority (int new_priority) 
 {
+  //enum intr_level old_level = intr_disable();
+  int old_pri_static = thread_current()->static_priority;
+  int old_pri = thread_current()->priority;
+  thread_current ()->static_priority = new_priority;
 
-  int old_priority = thread_current()->priority;
-  thread_current ()->priority = new_priority;
-
-  if(old_priority > new_priority) check_for_higher_priority_thread();
+  //intr_set_level(old_level);
+  if(old_pri_static > new_priority) check_for_higher_priority_thread(true);
 }
 
 /* Returns the current thread's priority. */
@@ -601,6 +607,7 @@ schedule (void)
 {
   threads_to_wakeup(); // check for threads that need to be woken up
   //list_sort(&ready_list, &compare_priority_decend, NULL); 
+  check_static = false;
   struct thread *cur = running_thread ();
   struct thread *next = next_thread_to_run ();
   struct thread *prev = NULL;
@@ -656,23 +663,33 @@ void threads_to_wakeup(void){
 	}	
 }
 
-void check_for_higher_priority_thread(void){
+void check_for_higher_priority_thread(bool check_static_pri){
 	enum intr_level old_level = intr_disable();
 
 	if(!list_empty(&ready_list)){	
-		list_sort(&ready_list, &compare_priority_decend, NULL);
+		//list_sort(&ready_list, &compare_priority_decend, NULL);
 		struct thread *hpt = list_entry(list_front(&ready_list), struct thread, elem);
-	
-		if(thread_current()->priority < hpt->priority){
-			if(intr_context()){
-				intr_yield_on_return();
-			} else {
-				thread_yield();
-			}
+		if(!check_static_pri){
+			compare_priority(thread_current()->priority, hpt->priority);
+		} else {
+			check_static = true;
+			compare_priority(thread_current()->static_priority, hpt->static_priority);
 		}
 	}
 
 	intr_set_level(old_level);
+
+}
+
+void compare_priority(int p1, int p2){
+	list_sort(&ready_list, &compare_priority_decend, NULL);
+	if(p1 < p2){
+		if(intr_context()){
+			intr_yield_on_return();
+		} else {
+			thread_yield();
+		}
+	}
 
 }
 
@@ -734,6 +751,7 @@ bool compare_priority_decend(const struct list_elem *a, const struct list_elem *
 	const struct thread *t2 = list_entry(b, struct thread, elem);
 
 	//if(t1->priority = t2->priority) return true;
+	if(check_static) return t1->static_priority > t2->static_priority ? true : false;
 	return t1->priority > t2->priority ? true : false;
 
 }
