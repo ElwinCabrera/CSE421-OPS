@@ -41,7 +41,9 @@ void cond_wait (struct condition *, struct lock *);
 void cond_signal (struct condition *, struct lock *);
 void cond_broadcast (struct condition *, struct lock *);
 
-bool compare_pri_static_decend(const struct list_elem *a, const struct list_elem *b, void *aux);
+void donate_priority( struct lock *);                                                             
+void remove_from_donors_list(struct thread *,struct lock *);
+bool compare_pri_condvar_decend(const struct list_elem *a, const struct list_elem *b, void *aux);
 
 /* Optimization barrier.
 

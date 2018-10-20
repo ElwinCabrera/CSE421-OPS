@@ -692,39 +692,9 @@ void compare_priority(int p1, int p2){
 
 }
 
-void donate_priority(struct lock *lock){
 
-  struct thread *donor = thread_current();
-  lock = donor->requested_lock;
-  while (lock != NULL  ){
-      lock->holder->priority = donor->priority;
-      donor = lock->holder;
-      lock = donor->requested_lock;
-    }
-	
-}
-
-
-void remove_from_donors_list(struct thread *holder, struct lock *lock){
-	struct list_elem *e = list_begin(&holder->donor_list);
-	while(e != list_end(&holder->donor_list)){
-		struct thread *t = list_entry(e, struct thread, donorelem);
-		if(is_thread(t) && t->requested_lock == lock){
-			struct list_elem *rmv = e;
-			e = list_next(e); 
-			list_remove(rmv);
-		} else {
-			e = list_next(e);
-		}
-	}
-
-	holder->priority = holder->static_priority;
-	
-	if(!list_empty(&holder->donor_list)){
-		struct list_elem *max_elem = list_max(&holder->donor_list, &compare_priority_decend, NULL);
-		struct thread *next_donor = list_entry(max_elem, struct thread, donorelem);
-		if(next_donor->priority > holder->priority) holder->priority = next_donor->priority;
-	}
+bool is_thread2(struct thread *t){
+	return is_thread(t);
 }
 
 

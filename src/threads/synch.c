@@ -274,6 +274,7 @@ lock_held_by_current_thread (const struct lock *lock)
 /* One semaphore in a list. */
 struct semaphore_elem 
   {
+	int waiter_pri;
     struct list_elem elem;              /* List element. */
     struct semaphore semaphore;         /* This semaphore. */
   };
@@ -320,7 +321,8 @@ cond_wait (struct condition *cond, struct lock *lock)
   ASSERT (lock_held_by_current_thread (lock));
   
   sema_init (&waiter.semaphore, 0);
-  list_insert_ordered (&cond->waiters, &waiter.elem, &compare_priority_decend, NULL);
+  waiter.waiter_pri = thread_current()->priority;
+  list_insert_ordered (&cond->waiters, &waiter.elem, &compare_pri_condvar_decend, NULL);
   lock_release (lock);
   sema_down (&waiter.semaphore);
   lock_acquire (lock);
@@ -361,4 +363,48 @@ cond_broadcast (struct condition *cond, struct lock *lock)
   while (!list_empty (&cond->waiters))
     cond_signal (cond, lock);
 }
+
+void donate_priority(struct lock *lock){                                                          
+
+	struct thread *donor = thread_current();
+	lock = donor->requested_lock;
+	while (lock != NULL  ){
+		lock->holder->priority = donor->priority;
+		donor = lock->holder;
+		lock = donor->requested_lock;
+    }     
+}
+ 
+ 
+void remove_from_donors_list(struct thread *holder, struct lock *lock){
+	struct list_elem *e = list_begin(&holder->donor_list);
+    while(e != list_end(&holder->donor_list)){
+		struct thread *t = list_entry(e, struct thread, donorelem);
+        if(is_thread2(t) && t->requested_lock == lock){
+			struct list_elem *rmv = e;
+            e = list_next(e); 
+            list_remove(rmv);
+        } else {
+            e = list_next(e);
+        }
+	}
+
+	holder->priority = holder->static_priority;
+     
+	if(!list_empty(&holder->donor_list)){
+		struct list_elem *max_elem = list_max(&holder->donor_list, &compare_priority_decend, NULL);
+        struct thread *next_donor = list_entry(max_elem, struct thread, donorelem);
+        if(next_donor->priority > holder->priority) holder->priority = next_donor->priority;
+	}
+
+}
+
+
+bool compare_pri_condvar_decend(const struct list_elem *a, const struct list_elem *b, void *aux UNUSED){
+	const struct semaphore_elem *se1 = list_entry(a, struct semaphore_elem, elem);
+	const struct semaphore_elem *se2 = list_entry(b, struct semaphore_elem, elem);
+
+	return se1->waiter_pri > se2->waiter_pri ? true : false;
+}
+
 
