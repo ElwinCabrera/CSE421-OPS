@@ -167,5 +167,6 @@ void threads_to_wakeup(void);
 void check_for_higher_priority_thread(bool check_static);
 void compare_priority(int p1, int p2);
 bool is_thread2(struct thread *t);
+bool is_mlfq(void);
 bool compare_priority_decend(const struct list_elem*, const struct list_elem*, void*);
 #endif /* threads/thread.h */

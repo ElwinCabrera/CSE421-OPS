@@ -696,6 +696,9 @@ void compare_priority(int p1, int p2){
 bool is_thread2(struct thread *t){
 	return is_thread(t);
 }
+bool is_mlfq(void){
+	return thread_mlfqs;
+}
 
 
 bool compare_priority_decend(const struct list_elem *a, const struct list_elem *b, void *aux UNUSED){

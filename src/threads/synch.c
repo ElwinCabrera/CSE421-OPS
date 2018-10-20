@@ -213,8 +213,8 @@ lock_acquire (struct lock *lock)
 	// than the thread that currently has the lock. If so then donate to the thread that 
 	// has the lock
 	struct thread *donor = thread_current();
-	if(lock->holder != NULL && donor->priority > lock->holder->priority){
-		donor->requested_lock = lock;
+    donor->requested_lock = lock;
+	if(lock->holder != NULL && !is_mlfq() && donor->priority > lock->holder->priority){
 		list_push_back(&lock->holder->donor_list, &donor->donorelem);
 		donate_priority(lock);
 	}
@@ -255,7 +255,7 @@ lock_release (struct lock *lock)
   ASSERT (lock_held_by_current_thread (lock));
 	// not requesting any lock.
  
-  remove_from_donors_list(lock->holder, lock);
+  if(!is_mlfq()) remove_from_donors_list(lock->holder, lock);
   lock->holder = NULL;
   sema_up (&lock->semaphore);
 }
