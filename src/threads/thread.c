@@ -145,6 +145,33 @@ thread_tick (void)
   else
     kernel_ticks++;
 
+  if(thread_mlfqs){
+     
+     if(t!=idle_thread){
+	t->recent_cpu= add_fixed_int(t->recent_cpu,1);   /* Incrementing recent_cpu value by 1 if thread isn't idle */
+     }
+
+     if(timer_ticks()%TIMER_FREQ==0 ){
+	thread_update_load_avg();
+        thread_update_recent_cpu();
+     }
+     /* At the completion of every time slice, update the priority and accordingly update the Ready list. 
+	priority=PRI_MAX-(recent_cpu/4)-(nice*2)
+     */
+     if(timer_ticks()%TIME_SLICE==0 ){
+	
+        int x= int_to_fixed(PRI_MAX);	
+	int y= div_fixed_int(t->recent_cpu,TIME_SLICE);        
+        int z= mul_fixed_int(int_to_fixed(t->nice),2);
+	
+	int temp1= sub_fixed_fixed(x,y);
+	int fixed_priority= sub_fixed_fixed(temp1,z);
+
+	t->priority=fixed_to_int(fixed_priority,true);	
+	list_sort(&ready_list, &compare_priority_decend, NULL);
+     }
+  }
+
    //list_sort(&ready_list, &compare_priority_decend, NULL);
    //struct list_elem *e = list_begin(&ready_list);
    //struct thread *test = list_entry(e, struct thread, elem);
@@ -157,8 +184,6 @@ thread_tick (void)
 
   /* Enforce preemption. */
   if (++thread_ticks >= TIME_SLICE)
-	//recalculate priority at this point
-	//priority = PRI_MAX -(recent_cpu /4) - (nice*2)
     intr_yield_on_return ();
 
 }
@@ -405,10 +430,28 @@ thread_get_nice (void)
 /* Returns 100 times the system load average. 
    load_avg = (59/60)*load_avg + (1/60)*ready_threads*/
 int
-thread_get_load_avg (void) 
+thread_get_load_avg (void)   
 {
-  /* Not yet implemented. */
-  return 0;
+  enum intr_level old_level=intr_disable();
+  
+  int load_avg_100= fixed_to_int(mul_fixed_int(load_avg, 100), true);  /* this is equivalent to rounding 100*load_avg to nearest integer */
+  
+  intr_set_level(old_level);
+  return load_avg_100;
+}
+
+/* Formula to calculate load average : load_avg = (59/60)*load_avg + (1/60)*ready_threads*/
+void
+thread_update_load_avg (void) 
+{
+  enum intr_level old_level=intr_disable();
+  
+  int ready_threads=number_of_threads_ready_to_run();
+  int x= div_fixed_int(mul_fixed_int(load_avg,59),60);  /* this is equivalent to (59/60)*load_avg */
+  int y= div_fixed_int(mul_fixed_int(int_to_fixed(ready_threads),1),60);  /* this is equivalent to (1/60)*ready_threads */
+  load_avg=add_fixed_fixed(x,y);  /* this is equivalent to load_avg = (59/60)*load_avg + (1/60)*ready_threads */
+  
+  intr_set_level(old_level);
 }
 
 /* Returns 100 times the current thread's recent_cpu value. 
@@ -416,10 +459,30 @@ thread_get_load_avg (void)
 int
 thread_get_recent_cpu (void) 
 {
-  /* Not yet implemented. */
-  return 0;
+  enum intr_level old_level=intr_disable();
+  
+  struct thread *cur= thread_current();
+  int recent_cpu_100= fixed_to_int(mul_fixed_int(cur->recent_cpu, 100), true);  /* this is equivalent to rounding 100*recent_cpu to nearest integer */
+
+  intr_set_level(old_level);
+  return recent_cpu_100;
 }
-
+
+/* Formula to calculate recent_cpu : recent_cpu = (2*load_avg)/(2*load_avg+1) * recent_cpu +nice */
+
+void
+thread_update_recent_cpu (void) 
+{
+  struct thread *cur = thread_current();
+  
+  int numerator_coeff = mul_fixed_int(load_avg,2);      /* this is equivalent to 2*load_avg */
+  int denominator_coeff = add_fixed_int(numerator_coeff,1);  	/* this is equivalent to 2*load_avg+1 */
+  int coeff = div_fixed_fixed(numerator_coeff,denominator_coeff);   			/* this is equivalent to (2*load_avg)/(2*load_avg+1) */
+  int x = mul_fixed_fixed(coeff, cur->recent_cpu);	/* this is equivalent to (2*load_avg)/(2*load_avg+1) * recent_cpu */
+  
+  cur->recent_cpu = add_fixed_int(cur->recent_cpu,cur->nice);	/* this is equivalent to (2*load_avg)/(2*load_avg+1) * recent_cpu +nice */
+  
+}
 /* Idle thread.  Executes when no other thread is ready to run.
 
    The idle thread is initially put on the ready list by
@@ -711,7 +774,16 @@ bool compare_priority_decend(const struct list_elem *a, const struct list_elem *
 
 }
 
-
+/* if the running thread isn't idle then count that too*/
+int number_of_threads_ready_to_run(){
+	struct thread *cur= thread_current();	
+	if(cur != idle_thread){
+		return list_size(&ready_list)+1;
+	}
+	else
+		return list_size(&ready_list);
+}
+
 /* Offset of `stack' member within `struct thread'.
    Used by switch.S, which can't figure it out on its own. */
 uint32_t thread_stack_ofs = offsetof (struct thread, stack);
