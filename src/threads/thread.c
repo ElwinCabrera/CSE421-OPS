@@ -64,6 +64,8 @@ bool thread_mlfqs;
 
 bool check_static;
 
+int load_avg;	/*Estimates the average number of threads ready to run over the past minute. This will be initialised to 0 at system boot*/
+
 static void kernel_thread (thread_func *, void *aux);
 
 static void idle (void *aux UNUSED);
@@ -147,40 +149,18 @@ thread_tick (void)
 
   if(thread_mlfqs){
      
-     if(t!=idle_thread){
-	t->recent_cpu= add_fixed_int(t->recent_cpu,1);   /* Incrementing recent_cpu value by 1 if thread isn't idle */
-     }
+     if(t!=idle_thread) t->recent_cpu= add_fixed_int(t->recent_cpu,1);   /* Incrementing recent_cpu value by 1 if thread isn't idle */
 
      if(timer_ticks()%TIMER_FREQ==0 ){
-	thread_update_load_avg();
-        thread_update_recent_cpu();
+		thread_update_load_avg();
+        thread_foreach(&thread_update_recent_cpu, NULL);
      }
-     /* At the completion of every time slice, update the priority and accordingly update the Ready list. 
-	priority=PRI_MAX-(recent_cpu/4)-(nice*2)
-     */
-     if(timer_ticks()%TIME_SLICE==0 ){
-	
-        int x= int_to_fixed(PRI_MAX);	
-	int y= div_fixed_int(t->recent_cpu,TIME_SLICE);        
-        int z= mul_fixed_int(int_to_fixed(t->nice),2);
-	
-	int temp1= sub_fixed_fixed(x,y);
-	int fixed_priority= sub_fixed_fixed(temp1,z);
 
-	t->priority=fixed_to_int(fixed_priority,true);	
-	list_sort(&ready_list, &compare_priority_decend, NULL);
-     }
+     /* At the completion of every time slice, update the priority and accordingly update the Ready list. 
+		priority=PRI_MAX-(recent_cpu/4)-(nice*2)*/
+     if(timer_ticks()%TIME_SLICE==0 ) thread_calculate_priority();
   }
 
-   //list_sort(&ready_list, &compare_priority_decend, NULL);
-   //struct list_elem *e = list_begin(&ready_list);
-   //struct thread *test = list_entry(e, struct thread, elem);
-   //if(test->priority > t->priority) intr_yield_on_return();
-	
-  /* recalculate recent_cpu everytime timer_ticks() % TIMER_FREQ =0 
-     else add 1 to recent_cpu*/
-//	check_for_higher_priority_thread();
-  /* recalculate load_avg every timer_ticks() % TIMER_FREQ =0 */
 
   /* Enforce preemption. */
   if (++thread_ticks >= TIME_SLICE)
@@ -251,9 +231,10 @@ thread_create (const char *name, int priority,
 
   /* Add to run queue. */
   thread_unblock (t);
-  //check if running threads priority is less than the new thread 
+	//check if running threads priority is less than the new thread 
 	//if so then schedule
 	if( priority > thread_current()->priority) check_for_higher_priority_thread(false);
+
   return tid;
 }
 
@@ -299,7 +280,9 @@ thread_unblock (struct thread *t)
 const char *
 thread_name (void) 
 {
+  enum intr_level old_level = intr_disable();
   return thread_current ()->name;
+  intr_set_level(old_level);
 }
 
 /* Returns the running thread.
@@ -385,8 +368,7 @@ thread_foreach (thread_action_func *func, void *aux)
 }
 
 /* Sets the current thread's priority to NEW_PRIORITY. */
-void
-thread_set_priority (int new_priority) 
+void thread_set_priority (int new_priority) 
 {
   struct thread *cur = thread_current();
   int old_pri_static = cur->static_priority;
@@ -397,17 +379,32 @@ thread_set_priority (int new_priority)
 }
 
 /* Returns the current thread's priority. */
-int
-thread_get_priority (void) 
+int thread_get_priority (void) 
 {
+  enum intr_level old_level = intr_disable();
   return thread_current ()->priority;
+  intr_set_level(old_level);
+}
+
+void thread_calculate_priority(void){
+
+	struct thread *t = thread_current();
+	int x= int_to_fixed(PRI_MAX);                                                                                                                                                                     
+	int y= div_fixed_int(t->recent_cpu,TIME_SLICE);        
+	int z= mul_fixed_int(int_to_fixed(t->nice),2);
+	int temp1= sub_fixed_fixed(x,y);
+	int fixed_priority= sub_fixed_fixed(temp1,z);
+	t->priority=fixed_to_int(fixed_priority,false);  
+	check_for_higher_priority_thread(false);
 }
 
 /* Sets the current thread's nice value to NICE. */
-void
-thread_set_nice (int nice UNUSED) 
+void thread_set_nice (int nice UNUSED) 
 {
-  /* Not yet implemented. */
+	if(is_thread(thread_current())){ 
+		thread_current()->nice = nice;
+		thread_calculate_priority();
+	}
 }
 
 /*A nice value of 0 des not affect thread priority. A positive nice
@@ -420,67 +417,61 @@ thread_set_nice (int nice UNUSED)
 /* Sets the current thread's nice value to NICE. And recalculates 
    thread priority based on new nice value. If the running thread 
    no longer has higest priority, yields.*/
-int
-thread_get_nice (void) 
+int thread_get_nice (void) 
 {
   /* Not yet implemented. */
+  return thread_current()->nice;
   return 0;
 }
 
 /* Returns 100 times the system load average. 
    load_avg = (59/60)*load_avg + (1/60)*ready_threads*/
-int
-thread_get_load_avg (void)   
+int thread_get_load_avg (void)   
 {
-  enum intr_level old_level=intr_disable();
+ // enum intr_level old_level=intr_disable();
   
   int load_avg_100= fixed_to_int(mul_fixed_int(load_avg, 100), true);  /* this is equivalent to rounding 100*load_avg to nearest integer */
   
-  intr_set_level(old_level);
+  //intr_set_level(old_level);
   return load_avg_100;
 }
 
 /* Formula to calculate load average : load_avg = (59/60)*load_avg + (1/60)*ready_threads*/
-void
-thread_update_load_avg (void) 
+void thread_update_load_avg (void) 
 {
-  enum intr_level old_level=intr_disable();
+  //enum intr_level old_level=intr_disable();
   
   int ready_threads=number_of_threads_ready_to_run();
-  int x= div_fixed_int(mul_fixed_int(load_avg,59),60);  /* this is equivalent to (59/60)*load_avg */
-  int y= div_fixed_int(mul_fixed_int(int_to_fixed(ready_threads),1),60);  /* this is equivalent to (1/60)*ready_threads */
-  load_avg=add_fixed_fixed(x,y);  /* this is equivalent to load_avg = (59/60)*load_avg + (1/60)*ready_threads */
+  int x= div_fixed_int(mul_fixed_int(load_avg,59),60);					/* this is equivalent to (59/60)*load_avg */
+  int y= div_fixed_int(mul_fixed_int(int_to_fixed(ready_threads),1),60);/* this is equivalent to (1/60)*ready_threads */
+  load_avg=add_fixed_fixed(x,y);										/* this is equivalent to load_avg = (59/60)*load_avg + (1/60)*ready_threads */
   
-  intr_set_level(old_level);
+ // intr_set_level(old_level);
 }
 
 /* Returns 100 times the current thread's recent_cpu value. 
   recent_cpu = (2*load_avg)/(2*load_avg+1) * recent_cpu +nice*/
-int
-thread_get_recent_cpu (void) 
+int thread_get_recent_cpu (void) 
 {
-  enum intr_level old_level=intr_disable();
+ // enum intr_level old_level=intr_disable();
   
   struct thread *cur= thread_current();
   int recent_cpu_100= fixed_to_int(mul_fixed_int(cur->recent_cpu, 100), true);  /* this is equivalent to rounding 100*recent_cpu to nearest integer */
 
-  intr_set_level(old_level);
+ // intr_set_level(old_level);
   return recent_cpu_100;
 }
 
 /* Formula to calculate recent_cpu : recent_cpu = (2*load_avg)/(2*load_avg+1) * recent_cpu +nice */
 
-void
-thread_update_recent_cpu (void) 
-{
-  struct thread *cur = thread_current();
+void thread_update_recent_cpu (struct thread *t, void *aux UNUSED) 
+{ 
+  int numerator_coeff = mul_fixed_int(load_avg,2);				/* this is equivalent to 2*load_avg */
+  int denominator_coeff = add_fixed_int(numerator_coeff,1);		/* this is equivalent to 2*load_avg+1 */
+  int coeff = div_fixed_fixed(numerator_coeff,denominator_coeff);/* this is equivalent to (2*load_avg)/(2*load_avg+1) */
+  int x = mul_fixed_fixed(coeff, t->recent_cpu);				/* this is equivalent to (2*load_avg)/(2*load_avg+1) * recent_cpu */
   
-  int numerator_coeff = mul_fixed_int(load_avg,2);      /* this is equivalent to 2*load_avg */
-  int denominator_coeff = add_fixed_int(numerator_coeff,1);  	/* this is equivalent to 2*load_avg+1 */
-  int coeff = div_fixed_fixed(numerator_coeff,denominator_coeff);   			/* this is equivalent to (2*load_avg)/(2*load_avg+1) */
-  int x = mul_fixed_fixed(coeff, cur->recent_cpu);	/* this is equivalent to (2*load_avg)/(2*load_avg+1) * recent_cpu */
-  
-  cur->recent_cpu = add_fixed_int(cur->recent_cpu,cur->nice);	/* this is equivalent to (2*load_avg)/(2*load_avg+1) * recent_cpu +nice */
+  t->recent_cpu = add_fixed_int(x,t->nice);		/* this is equivalent to (2*load_avg)/(2*load_avg+1) * recent_cpu +nice */
   
 }
 /* Idle thread.  Executes when no other thread is ready to run.
@@ -569,7 +560,7 @@ init_thread (struct thread *t, const char *name, int priority)
   strlcpy (t->name, name, sizeof t->name);
 
   t->time_to_wakeup = INT64_MAXX;
-  t->nice = thread_get_nice();
+  //if(thread_mlfqs) t->nice = thread_get_nice();
   list_init(&t->donor_list);
 
   t->stack = (uint8_t *) t + PGSIZE;
@@ -759,7 +750,7 @@ void compare_priority(int p1, int p2){
 bool is_thread2(struct thread *t){
 	return is_thread(t);
 }
-bool is_mlfq(void){
+bool is_mlfqs(void){
 	return thread_mlfqs;
 }
 
