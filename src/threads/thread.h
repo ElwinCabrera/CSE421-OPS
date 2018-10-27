@@ -1,6 +1,7 @@
 #ifndef THREADS_THREAD_H
 #define THREADS_THREAD_H
 
+
 #include <debug.h>
 #include <list.h>
 #include <stdint.h>
@@ -101,13 +102,14 @@ struct thread
 	struct list donor_list;
 	int64_t time_to_wakeup;			/* If thread is sleeping sets the time to wake*/
 
+
 	int8_t nice;			/* Nice value to determine how "nice" a thread should be to others */
 
-	/* How much time this thread "recently" received CPU recources. Each time 
-       a timer interrupt occurs recent_cpu is incremented by 1 for the running thread only, 
-	   unless idle thread. Also once per second recent_cpu is recalculated for that thread. 
-       This value can be negative*/
-	int recent_cpu; 
+	/* How much time this thread "recently" received CPU recources. Each time */ 
+	/* a timer interrupt occurs recent_cpu is incremented by 1 for the running thread only, */
+	/* unless idle thread. Also once per second recent_cpu is recalculated for that thread. */
+	/* This value can be negative */
+	int recent_cpu;
 
 	struct lock *requested_lock;
 	struct lock *holding_locks;
@@ -154,11 +156,13 @@ void thread_foreach (thread_action_func *, void *);
 
 int thread_get_priority (void);
 void thread_set_priority (int);
-
+void thread_calculate_priority(void);
 int thread_get_nice (void);
 void thread_set_nice (int);
 int thread_get_recent_cpu (void);
+void thread_update_recent_cpu (struct thread *, void *);
 int thread_get_load_avg (void);
+void thread_update_load_avg (void);
 
 int calculate_recent_cpu(void);
 int calculate_load_avg(void);
@@ -167,5 +171,7 @@ void threads_to_wakeup(void);
 void check_for_higher_priority_thread(bool check_static);
 void compare_priority(int p1, int p2);
 bool is_thread2(struct thread *t);
+bool is_mlfqs(void);
 bool compare_priority_decend(const struct list_elem*, const struct list_elem*, void*);
+int number_of_threads_ready_to_run(void);
 #endif /* threads/thread.h */
