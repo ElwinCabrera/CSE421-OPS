@@ -59,6 +59,7 @@ start_process (void *file_name_)
   if_.gs = if_.fs = if_.es = if_.ds = if_.ss = SEL_UDSEG;
   if_.cs = SEL_UCSEG;
   if_.eflags = FLAG_IF | FLAG_MBS;
+  
   success = load (file_name, &if_.eip, &if_.esp);
 
   /* If load failed, quit. */
@@ -88,7 +89,8 @@ start_process (void *file_name_)
 int
 process_wait (tid_t child_tid UNUSED) 
 {
-  return -1;
+  while(true) thread_yield();
+  //return -1;
 }
 
 /* Free the current process's resources. */
@@ -222,6 +224,8 @@ load (const char *file_name, void (**eip) (void), void **esp)
   process_activate ();
 
   /* Open executable file. */
+  
+  //get the program name here first no args
   file = filesys_open (file_name);
   if (file == NULL) 
     {
@@ -462,4 +466,8 @@ install_page (void *upage, void *kpage, bool writable)
      address, then map our page there. */
   return (pagedir_get_page (t->pagedir, upage) == NULL
           && pagedir_set_page (t->pagedir, upage, kpage, writable));
+}
+
+int32_t args_get_stack_size(char *file_name){
+
 }
