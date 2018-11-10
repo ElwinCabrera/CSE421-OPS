@@ -448,20 +448,39 @@ setup_stack (void **esp, const char *file_name)
         return success;
       }
       int argc =0;
-      char **argv =malloc(3*sizeof(char*));
-      *esp = PHYS_BASE - stack_frame_size(file_name, &argc, argv);
+      //size is random will change later to accomidate for more than 5 args
+      char **argv =malloc(5*sizeof(char*));  
+      argv[0]="rand";
+      uint32_t sf = stack_frame_size(file_name, &argc, argv);
+      printf("stack frame size is %d\n", sf);
+      *esp = PHYS_BASE - sf;
 
-      memcpy(esp,"", sizeof(void*));
-      memcpy(esp, &argc, sizeof(int));
-      memcpy(esp, &argv, sizeof(char**));
+      //debug
+      hex_dump(PHYS_BASE -sf, PHYS_BASE -sf, sf, true); 
+      //end debug
+
+      void *fake_RA;
+      uint8_t align=0;
+      memcpy(*esp, &fake_RA, sizeof(void*));
+      memcpy(*esp, &argc, sizeof(int));
+      memcpy(*esp, &argv, sizeof(char**));
       int i;
       for(i=0; i<argc; i++) memcpy(esp, &argv[i], sizeof(char*));
+
+      //debug
+      hex_dump(PHYS_BASE -sf, PHYS_BASE -sf, sf, true); 
+      //end debug
+      
       //do word align here
-      memcpy(esp, "", sizeof(uint8_t));
+      memcpy(*esp, align, sizeof(uint8_t));
       i=0;
       for(i=0; i<argc; i++) memcpy(esp, argv[i], sizeof(strlen(argv[i])) );
 
-      ASSERT(*esp < PHYS_BASE);
+      //debug
+      hex_dump(PHYS_BASE -sf, PHYS_BASE -sf, sf, true); 
+      //end debug
+
+      ASSERT(*esp <= PHYS_BASE);
       return true;  
     }
   return success;
@@ -496,28 +515,29 @@ install_page (void *upage, void *kpage, bool writable)
         it will be overwritten).
 */
 uint32_t stack_frame_size(const char *file_name, int *argc ,char **argv){
-  uint32_t required_space = 0;
-  char *save_ptr;
-  char *token;
-  int i;
+  uint32_t required_space = 0,i;
+  char *save_ptr, *token;
+  
   
   for(token = strtok_r(file_name, " ", &save_ptr); 
       token != NULL; token = strtok_r(NULL, " ", &save_ptr)){
         
         if(argv != NULL) argv[(*argc)] = token;
         (*argc)++;
-        required_space += strlen(token) +1;   
+        required_space += (strlen(token) +1)* sizeof(char);
+        printf("Token: '%s', Size: %d\n", token, strlen(token)+1);   
   }
-  argv[++(*argc)]="\0";
-  for(i =0; i<(*argc); i++) required_space += sizeof(char*);  
+  printf("Required space at this point: %d\n", required_space);
+  argv[++(*argc)]=0;
+  for(i =0; i<(*argc); i++) required_space += sizeof(char*); 
+  printf("Required space before consts: %d\n", required_space); 
 
   /* The extra space requiremnets are for
      the word align, the last argv[argc-1], argc (count), 
-     and the fake return address (order listed is order in code)
+     and the fake return address (order listed is order in code).
   */
-  required_space += sizeof(int)   + 
-                  sizeof(uint8_t) + 
-                  sizeof(char*)   + sizeof(int) + sizeof(void*);
+  required_space += sizeof(uint8_t) + 
+                  sizeof(char*) + sizeof(int) + sizeof(void**);
 
   return required_space;  
 }
