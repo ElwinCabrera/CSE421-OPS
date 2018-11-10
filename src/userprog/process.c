@@ -439,13 +439,20 @@ setup_stack (void **esp, const char *file_name)
   bool success = false;
 
   kpage = palloc_get_page (PAL_USER | PAL_ZERO);
-  if (kpage != NULL) 
-    {
+  if (kpage != NULL) {
       success = install_page (((uint8_t *) PHYS_BASE) - PGSIZE, kpage, true);
-      if (success)
-        *esp = PHYS_BASE;
-      else
+      if (!success) {
         palloc_free_page (kpage);
+        return success;
+      }
+      int argc =0;
+      char **argv =malloc(3*sizeof(char*));
+      *esp = PHYS_BASE - stack_frame_size(file_name, &argc, &argv);
+
+
+
+      ASSERT(*esp < PHYS_BASE);
+      return true;  
     }
   return success;
 }
@@ -470,6 +477,38 @@ install_page (void *upage, void *kpage, bool writable)
           && pagedir_set_page (t->pagedir, upage, kpage, writable));
 }
 
-/*int32_t args_get_stack_size(char *file_name){
+/*
+  Function to get all the spcae requirements to set up the stack for 
+  a given process, argc and argv are optional (can pass in a NULL).
+  
+  NOTE: If argv is to be used then you must first put something 
+        in the first element (it could be any random string as 
+        it will be overwritten).
+*/
+uint32_t stack_frame_size(char *file_name, int *argc ,char **argv){
+  uint32_t required_space = 0;
+  char *save_ptr;
+  char *token;
+  int i;
+  
+  for(token = strtok_r(file_name, " ", &save_ptr); 
+      token != NULL; token = strtok_r(NULL, " ", &save_ptr)){
+  
+        if(argv != NULL) argv[argc++] = token;
+        required_space += strlen(token) +1;
+  }
 
-}*/
+  for(i =0; i<argc; i++) required_space += sizeof(char*);
+
+  /* The extra space requiremnets are for
+     the word align, the last argv[argc-1], argc (count), 
+     and the fake return address (order listed is order in code).
+  */
+  required_space += sizeof(int)   + 
+                  sizeof(uint8_t) + 
+                  sizeof(char*)   + sizeof(int)+ sizeof(void*);
+
+  return required_space;
+
+  
+}
