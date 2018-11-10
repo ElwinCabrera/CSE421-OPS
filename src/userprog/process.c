@@ -17,6 +17,7 @@
 #include "threads/palloc.h"
 #include "threads/thread.h"
 #include "threads/vaddr.h"
+#include "threads/malloc.h"
 
 static thread_func start_process NO_RETURN;
 static bool load (const char *cmdline, void (**eip) (void), void **esp);
@@ -89,8 +90,8 @@ start_process (void *file_name_)
 int
 process_wait (tid_t child_tid UNUSED) 
 {
-  while(true) thread_yield();
-  //return -1;
+  //while(true) thread_yield();
+  return -1;
 }
 
 /* Free the current process's resources. */
@@ -202,6 +203,7 @@ static bool validate_segment (const struct Elf32_Phdr *, struct file *);
 static bool load_segment (struct file *file, off_t ofs, uint8_t *upage,
                           uint32_t read_bytes, uint32_t zero_bytes,
                           bool writable);
+static uint32_t stack_frame_size(const char *file_name, int *argc ,char **argv);
 
 /* Loads an ELF executable from FILE_NAME into the current thread.
    Stores the executable's entry point into *EIP
@@ -447,9 +449,17 @@ setup_stack (void **esp, const char *file_name)
       }
       int argc =0;
       char **argv =malloc(3*sizeof(char*));
-      *esp = PHYS_BASE - stack_frame_size(file_name, &argc, &argv);
+      *esp = PHYS_BASE - stack_frame_size(file_name, &argc, argv);
 
-
+      memcpy(esp,"", sizeof(void*));
+      memcpy(esp, &argc, sizeof(int));
+      memcpy(esp, &argv, sizeof(char**));
+      int i;
+      for(i=0; i<argc; i++) memcpy(esp, &argv[i], sizeof(char*));
+      //do word align here
+      memcpy(esp, "", sizeof(uint8_t));
+      i=0;
+      for(i=0; i<argc; i++) memcpy(esp, argv[i], sizeof(strlen(argv[i])) );
 
       ASSERT(*esp < PHYS_BASE);
       return true;  
@@ -485,7 +495,7 @@ install_page (void *upage, void *kpage, bool writable)
         in the first element (it could be any random string as 
         it will be overwritten).
 */
-uint32_t stack_frame_size(char *file_name, int *argc ,char **argv){
+uint32_t stack_frame_size(const char *file_name, int *argc ,char **argv){
   uint32_t required_space = 0;
   char *save_ptr;
   char *token;
@@ -493,22 +503,21 @@ uint32_t stack_frame_size(char *file_name, int *argc ,char **argv){
   
   for(token = strtok_r(file_name, " ", &save_ptr); 
       token != NULL; token = strtok_r(NULL, " ", &save_ptr)){
-  
-        if(argv != NULL) argv[argc++] = token;
-        required_space += strlen(token) +1;
+        
+        if(argv != NULL) argv[(*argc)] = token;
+        (*argc)++;
+        required_space += strlen(token) +1;   
   }
-
-  for(i =0; i<argc; i++) required_space += sizeof(char*);
+  argv[++(*argc)]="\0";
+  for(i =0; i<(*argc); i++) required_space += sizeof(char*);  
 
   /* The extra space requiremnets are for
      the word align, the last argv[argc-1], argc (count), 
-     and the fake return address (order listed is order in code).
+     and the fake return address (order listed is order in code)
   */
   required_space += sizeof(int)   + 
                   sizeof(uint8_t) + 
-                  sizeof(char*)   + sizeof(int)+ sizeof(void*);
+                  sizeof(char*)   + sizeof(int) + sizeof(void*);
 
-  return required_space;
-
-  
+  return required_space;  
 }
