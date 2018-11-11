@@ -204,7 +204,7 @@ static bool validate_segment (const struct Elf32_Phdr *, struct file *);
 static bool load_segment (struct file *file, off_t ofs, uint8_t *upage,
                           uint32_t read_bytes, uint32_t zero_bytes,
                           bool writable);
-static uint32_t stack_frame_size(const char *file_name, int *argc ,char **argv, uint32_t *align);
+static uint32_t stack_frame_size(const char *file_name, void **esp,int *argc ,char **argv, uint32_t *align);
 uint32_t align(uint32_t current_pos, const uint32_t bytes);
 
 /* Loads an ELF executable from FILE_NAME into the current thread.
@@ -441,7 +441,7 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 /* Create a minimal stack by mapping a zeroed page at the top of
    user virtual memory. */
 static bool
-setup_stack (void **esp, const char *file_name) 
+setup_stack (void **esp, const char *file_name_) 
 {
   uint8_t *kpage;
   bool success = false;
@@ -453,72 +453,85 @@ setup_stack (void **esp, const char *file_name)
         palloc_free_page (kpage);
         return success;
       }
+
       int argc;
       //size is random will change later to accomidate for more than 5 args
       char **argv =malloc(3*sizeof(char*));  
-      
       uint32_t align=0;
-      void *fake_RA = 0x12345678;
+      uint32_t sf = stack_frame_size(file_name_, esp, &argc, &argv[0], &align);
+      
+      *esp =  (PHYS_BASE) - sf;
+
+      void *fake_RA = (void*) 0x12345678;
       int i;
 
-      uint32_t sf = stack_frame_size(file_name, &argc, argv, &align);
-      printf("stack frame size is %d\n", sf);
-      printf("argc = %d\n", argc);
-      for(int i =0; i<3; i++) printf("Stuff in argv @ pos %d = %s\n",i, &argv[i]);
-
-      *esp = ( (PHYS_BASE) - sf );
-
-      //debug
-      hex_dump((PHYS_BASE) -sf, (PHYS_BASE) -sf, sf, true); 
-      printf("\n");
-      //end debug
+      printf("\nstack frame size is %d\n", sf);
+      printf("argc = %d\n\n", argc);
 
       // could you use memcpy?
       //might also want to align first before pushing to stack (4 byte is alignment)
 
-      
-      
       memcpy(*esp, &fake_RA, sizeof(void*));
-      *esp += sizeof(void*)+1;
+      *esp += sizeof(void*);
 
       memcpy(*esp, &argc, sizeof(int)); //This probably shouldnt be the address of argc
-      *esp += sizeof(int)+1;
+      *esp += sizeof(int);
 
-      memcpy(*esp, &argv, sizeof(char*));
-      *esp += sizeof(char*)+1;
+      memcpy(*esp, &argv[0], sizeof(char*));
+      *esp += sizeof(char*);
 
-      
+      hex_dump((uintptr_t) ((PHYS_BASE) -sf), (void*)((PHYS_BASE) -sf), (size_t) sf, true);
+      printf("\n");  
+
+      //putting the address of each string in memory
       for(i=0; i<argc; i++){ 
         memcpy(*esp, &argv[i], sizeof(char*));
-        *esp += sizeof(char*)+1;
+        *esp += sizeof(char*); //* (argc +1);
       }
+
+      
 
       
       
       //do word align here
-      if(align != 0 ) memset(*esp, 5, align);
-
-      //debug
-      hex_dump((PHYS_BASE) -sf, (PHYS_BASE) -sf, sf, true);
-      printf("\n");  
-      //end debug
-    
-      for(i=0; i<argc; i++) {
-        int size = sizeof(strlen(&argv[i]));
-        if(&argv[i] != NULL){ 
-          memcpy(*esp, &argv[i], size);
-          *esp += size;
-        }
+      if(align != 0 ){
+        memset(*esp, 5, align);
+        *esp += align;
       }
 
 
       //debug
-      hex_dump(PHYS_BASE -sf, PHYS_BASE -sf, sf, true);
-      printf("\n"); 
+      hex_dump((uintptr_t) ((PHYS_BASE) -sf), (void*)((PHYS_BASE) -sf), (size_t) sf, true);
+      printf("\n");  
       //end debug
 
+      char *save_ptr, *token;
+
+      char *file_name = malloc(strlen(file_name_)*sizeof(char)+1);
+      strlcpy(file_name, file_name_, strlen(file_name_)+1);
+  
+  
+      for(token = strtok_r(file_name, " ", &save_ptr); 
+        token != NULL; token = strtok_r(NULL, " ", &save_ptr)){
+          int size = strlen(token)+1;
+          if(argv) {
+            memcpy(*esp, token, size);
+            *esp +=size;
+          }
+        }
+
+
+      //debug
+      hex_dump((uintptr_t) ((PHYS_BASE) -sf), (void*)((PHYS_BASE) -sf), (size_t) sf, true);;
+      printf("\n");
+       for(i =0; i<3; i++) printf("Stuff in argv @ pos %d = %s\n\n",i, argv[i]); 
+      //end debug
+
+      free(argv);
+      free(file_name);
+
       ASSERT(*esp >= PHYS_BASE);
-      return true;  
+        
     }
   return success;
 }
@@ -551,8 +564,9 @@ install_page (void *upage, void *kpage, bool writable)
         in the first element (it could be any random string as 
         it will be overwritten).
 */
-uint32_t stack_frame_size(const char *file_name_, int *argc_ ,char **argv, uint32_t *align_){
-  uint32_t required_space = 0, argc = 0, i;
+uint32_t stack_frame_size(const char *file_name_,void **esp ,int *argc_ ,char **argv, uint32_t *align_){
+  uint32_t required_space = 0;
+  int argc = 1, i;
   char *save_ptr, *token;
 
   char *file_name = malloc(strlen(file_name_)*sizeof(char)+1);
@@ -561,23 +575,35 @@ uint32_t stack_frame_size(const char *file_name_, int *argc_ ,char **argv, uint3
   
   for(token = strtok_r(file_name, " ", &save_ptr); 
       token != NULL; token = strtok_r(NULL, " ", &save_ptr)){
-        
-        if(argv != NULL) strlcpy(&argv[argc++], token, strlen(token)+1);
-        //argc++;
+
         required_space += (strlen(token) +1)* sizeof(char);
-          
+        argc++;
   }
-  
-  argv[++argc]=0;
-  for(i =0; i<argc; i++) required_space += sizeof(char*);
-  
-  /* The extra space requiremnets are for
-     the the last argv[argc-1], argc (count), 
-     and the fake return address (order listed is order in code).
-  */
-  required_space += sizeof(char*) + sizeof(int) + sizeof(void**);
+
   (*align_) = align(required_space, 4);
   required_space += (*align_);
+
+  *esp -= required_space;
+
+  for(i =argc-1; i>=0; i--) {
+    required_space += sizeof(char*);
+
+    if(esp && argv){
+      *esp -= sizeof(char*);
+      argv[argc] = *esp;
+    }
+  }
+
+  if(esp && argv){
+    *esp -= sizeof(char*);
+    argv = *esp;
+    *esp += sizeof(char*)*(argc+1);
+  }
+  /* The extra space requiremnets are for the fake return address, 
+     argc, the base address of argv, and the last entry in argv which 
+     shuld be NULL (order listed is order in code).
+  */
+  required_space += sizeof(void*) +sizeof(int) + sizeof(char*) + sizeof(char*);
 
   (*argc_) = argc;
   free(file_name);
