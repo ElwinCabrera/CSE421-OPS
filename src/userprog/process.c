@@ -199,11 +199,13 @@ struct Elf32_Phdr
 #define PF_R 4          /* Readable. */
 
 static bool setup_stack (void **esp, const char *file_name);
+
 static bool validate_segment (const struct Elf32_Phdr *, struct file *);
 static bool load_segment (struct file *file, off_t ofs, uint8_t *upage,
                           uint32_t read_bytes, uint32_t zero_bytes,
                           bool writable);
-static uint32_t stack_frame_size(const char *file_name, int *argc ,char **argv);
+static uint32_t stack_frame_size(const char *file_name, int *argc ,char **argv, uint32_t *align);
+uint32_t align(uint32_t current_pos, const uint32_t bytes);
 
 /* Loads an ELF executable from FILE_NAME into the current thread.
    Stores the executable's entry point into *EIP
@@ -229,7 +231,10 @@ load (const char *file_name, void (**eip) (void), void **esp)
 
   //get the program name here first no args
   char *save_ptr;
-  char *file_name_no_args = strtok_r(file_name, " ", &save_ptr);
+  char *file_name_no_args = malloc(strlen(file_name)*sizeof(char)+1);
+  strlcpy(file_name_no_args, file_name, strlen(file_name)+1);
+  file_name_no_args = strtok_r(file_name_no_args," ", &save_ptr);
+
   file = filesys_open (file_name_no_args);
   if (file == NULL) 
     {
@@ -320,6 +325,7 @@ load (const char *file_name, void (**eip) (void), void **esp)
 
  done:
   /* We arrive here whether the load is successful or not. */
+  free(file_name_no_args);
   file_close (file);
   return success;
 }
@@ -447,40 +453,71 @@ setup_stack (void **esp, const char *file_name)
         palloc_free_page (kpage);
         return success;
       }
-      int argc =0;
+      int argc;
       //size is random will change later to accomidate for more than 5 args
-      char **argv =malloc(5*sizeof(char*));  
-      argv[0]="rand";
-      uint32_t sf = stack_frame_size(file_name, &argc, argv);
-      printf("stack frame size is %d\n", sf);
-      *esp = PHYS_BASE - sf;
-
-      //debug
-      hex_dump(PHYS_BASE -sf, PHYS_BASE -sf, sf, true); 
-      //end debug
-
-      void *fake_RA;
-      uint8_t align=0;
-      memcpy(*esp, &fake_RA, sizeof(void*));
-      memcpy(*esp, &argc, sizeof(int));
-      memcpy(*esp, &argv, sizeof(char**));
+      char **argv =malloc(3*sizeof(char*));  
+      
+      uint32_t align=0;
+      void *fake_RA = 0x12345678;
       int i;
-      for(i=0; i<argc; i++) memcpy(esp, &argv[i], sizeof(char*));
+
+      uint32_t sf = stack_frame_size(file_name, &argc, argv, &align);
+      printf("stack frame size is %d\n", sf);
+      printf("argc = %d\n", argc);
+      for(int i =0; i<3; i++) printf("Stuff in argv @ pos %d = %s\n",i, &argv[i]);
+
+      *esp = ( (PHYS_BASE) - sf );
 
       //debug
-      hex_dump(PHYS_BASE -sf, PHYS_BASE -sf, sf, true); 
+      hex_dump((PHYS_BASE) -sf, (PHYS_BASE) -sf, sf, true); 
+      printf("\n");
       //end debug
+
+      // could you use memcpy?
+      //might also want to align first before pushing to stack (4 byte is alignment)
+
+      
+      
+      memcpy(*esp, &fake_RA, sizeof(void*));
+      *esp += sizeof(void*)+1;
+
+      memcpy(*esp, &argc, sizeof(int)); //This probably shouldnt be the address of argc
+      *esp += sizeof(int)+1;
+
+      memcpy(*esp, &argv, sizeof(char*));
+      *esp += sizeof(char*)+1;
+
+      
+      for(i=0; i<argc; i++){ 
+        memcpy(*esp, &argv[i], sizeof(char*));
+        *esp += sizeof(char*)+1;
+      }
+
+      
       
       //do word align here
-      memcpy(*esp, align, sizeof(uint8_t));
-      i=0;
-      for(i=0; i<argc; i++) memcpy(esp, argv[i], sizeof(strlen(argv[i])) );
+      if(align != 0 ) memset(*esp, 5, align);
 
       //debug
-      hex_dump(PHYS_BASE -sf, PHYS_BASE -sf, sf, true); 
+      hex_dump((PHYS_BASE) -sf, (PHYS_BASE) -sf, sf, true);
+      printf("\n");  
+      //end debug
+    
+      for(i=0; i<argc; i++) {
+        int size = sizeof(strlen(&argv[i]));
+        if(&argv[i] != NULL){ 
+          memcpy(*esp, &argv[i], size);
+          *esp += size;
+        }
+      }
+
+
+      //debug
+      hex_dump(PHYS_BASE -sf, PHYS_BASE -sf, sf, true);
+      printf("\n"); 
       //end debug
 
-      ASSERT(*esp <= PHYS_BASE);
+      ASSERT(*esp >= PHYS_BASE);
       return true;  
     }
   return success;
@@ -514,30 +551,41 @@ install_page (void *upage, void *kpage, bool writable)
         in the first element (it could be any random string as 
         it will be overwritten).
 */
-uint32_t stack_frame_size(const char *file_name, int *argc ,char **argv){
-  uint32_t required_space = 0,i;
+uint32_t stack_frame_size(const char *file_name_, int *argc_ ,char **argv, uint32_t *align_){
+  uint32_t required_space = 0, argc = 0, i;
   char *save_ptr, *token;
+
+  char *file_name = malloc(strlen(file_name_)*sizeof(char)+1);
+  strlcpy(file_name, file_name_, strlen(file_name_)+1);
   
   
   for(token = strtok_r(file_name, " ", &save_ptr); 
       token != NULL; token = strtok_r(NULL, " ", &save_ptr)){
         
-        if(argv != NULL) argv[(*argc)] = token;
-        (*argc)++;
+        if(argv != NULL) strlcpy(&argv[argc++], token, strlen(token)+1);
+        //argc++;
         required_space += (strlen(token) +1)* sizeof(char);
-        printf("Token: '%s', Size: %d\n", token, strlen(token)+1);   
+          
   }
-  printf("Required space at this point: %d\n", required_space);
-  argv[++(*argc)]=0;
-  for(i =0; i<(*argc); i++) required_space += sizeof(char*); 
-  printf("Required space before consts: %d\n", required_space); 
-
+  
+  argv[++argc]=0;
+  for(i =0; i<argc; i++) required_space += sizeof(char*);
+  
   /* The extra space requiremnets are for
-     the word align, the last argv[argc-1], argc (count), 
+     the the last argv[argc-1], argc (count), 
      and the fake return address (order listed is order in code).
   */
-  required_space += sizeof(uint8_t) + 
-                  sizeof(char*) + sizeof(int) + sizeof(void**);
+  required_space += sizeof(char*) + sizeof(int) + sizeof(void**);
+  (*align_) = align(required_space, 4);
+  required_space += (*align_);
 
+  (*argc_) = argc;
+  free(file_name);
   return required_space;  
+}
+
+uint32_t align(uint32_t current_pos, const uint32_t bytes){
+  uint32_t offset=0;
+  while(current_pos % bytes) { offset++; current_pos++; } 
+  return offset;
 }
