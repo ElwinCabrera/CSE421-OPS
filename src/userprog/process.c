@@ -454,56 +454,24 @@ setup_stack (void **esp, const char *file_name_)
         return success;
       }
 
-      int argc;
-      //size is random will change later to accomidate for more than 5 args
-      char **argv =malloc(3*sizeof(char*));  
-      uint32_t align=0;
-      uint32_t sf = stack_frame_size(file_name_, esp, &argc, &argv[0], &align);
-      
-      *esp =  (PHYS_BASE) - sf;
+      *esp =  (PHYS_BASE);
 
-      void *fake_RA = (void*) 0x12345678;
+      int argc;
+      uint32_t align=0;
+      char **argv =malloc(3*sizeof(char*));
+      uint32_t sf = stack_frame_size(file_name_, esp, &argc, argv, &align);
+      //char **argv =malloc(argc*sizeof(char*));
+      //stack_frame_size(file_name_, esp, &argc, argv,&align);
+      
+      if (*esp != PHYS_BASE) printf("WARNING: esp not at PHYS_BASE\n");
+      
+
+      void *fake_ra = (void*) 0x12345678;
       int i;
 
       printf("\nstack frame size is %d\n", sf);
       printf("argc = %d\n\n", argc);
-
-      // could you use memcpy?
-      //might also want to align first before pushing to stack (4 byte is alignment)
-
-      memcpy(*esp, &fake_RA, sizeof(void*));
-      *esp += sizeof(void*);
-
-      memcpy(*esp, &argc, sizeof(int)); //This probably shouldnt be the address of argc
-      *esp += sizeof(int);
-
-      memcpy(*esp, &argv[0], sizeof(char*));
-      *esp += sizeof(char*);
-
-      hex_dump((uintptr_t) ((PHYS_BASE) -sf), (void*)((PHYS_BASE) -sf), (size_t) sf, true);
-      printf("\n");  
-
-      //putting the address of each string in memory
-      for(i=0; i<argc; i++){ 
-        memcpy(*esp, &argv[i], sizeof(char*));
-        *esp += sizeof(char*); //* (argc +1);
-      }
-
       
-
-      
-      
-      //do word align here
-      if(align != 0 ){
-        memset(*esp, 5, align);
-        *esp += align;
-      }
-
-
-      //debug
-      hex_dump((uintptr_t) ((PHYS_BASE) -sf), (void*)((PHYS_BASE) -sf), (size_t) sf, true);
-      printf("\n");  
-      //end debug
 
       char *save_ptr, *token;
 
@@ -515,22 +483,44 @@ setup_stack (void **esp, const char *file_name_)
         token != NULL; token = strtok_r(NULL, " ", &save_ptr)){
           int size = strlen(token)+1;
           if(argv) {
+            *esp -= size;
             memcpy(*esp, token, size);
-            *esp +=size;
           }
         }
 
 
-      //debug
-      hex_dump((uintptr_t) ((PHYS_BASE) -sf), (void*)((PHYS_BASE) -sf), (size_t) sf, true);;
-      printf("\n");
-       for(i =0; i<3; i++) printf("Stuff in argv @ pos %d = %s\n\n",i, argv[i]); 
-      //end debug
+        for(i=argc-1; i>=0; i--){
+          *esp -= sizeof(char*);
+          memcpy(*esp, &argv[i], sizeof(char*));
+        } 
+
+        argv = *esp;
+        *esp -= sizeof(char*);
+        memcpy(*esp, &argv, sizeof(char*));
+
+        *esp -= sizeof(int);
+        memcpy(*esp, &argc, sizeof(int)); 
+        
+        *esp -= sizeof(void*);
+        memcpy(*esp, &fake_ra, sizeof(void*));
+
+        if(align != 0 ){
+          *esp -= align;
+          memset(*esp, 5, align);
+        }
+        
+        if(*esp +sf != PHYS_BASE) printf("allocated more memory than should\n");
+       
+        //debug
+        hex_dump((uintptr_t) ((PHYS_BASE) -sf), (void*)((PHYS_BASE) -sf), (size_t) sf, true);;
+        printf("\n");
+        for(i =0; i<3; i++) printf("argv @ pos %d = %s\n\n",i, argv[i]); 
+        //end debug
 
       free(argv);
       free(file_name);
 
-      ASSERT(*esp >= PHYS_BASE);
+      ASSERT(*esp >= PHYS_BASE+sf);
         
     }
   return success;
@@ -566,7 +556,7 @@ install_page (void *upage, void *kpage, bool writable)
 */
 uint32_t stack_frame_size(const char *file_name_,void **esp ,int *argc_ ,char **argv, uint32_t *align_){
   uint32_t required_space = 0;
-  int argc = 1, i;
+  int argc = 0, i;
   char *save_ptr, *token;
 
   char *file_name = malloc(strlen(file_name_)*sizeof(char)+1);
@@ -575,36 +565,34 @@ uint32_t stack_frame_size(const char *file_name_,void **esp ,int *argc_ ,char **
   
   for(token = strtok_r(file_name, " ", &save_ptr); 
       token != NULL; token = strtok_r(NULL, " ", &save_ptr)){
-
-        required_space += (strlen(token) +1)* sizeof(char);
+        int s_len = strlen(token)+1;
+        required_space += s_len * sizeof(char);
+        
+        if(argv && esp) {
+          *esp -= s_len;
+          argv[argc] = *esp;
+        }
         argc++;
   }
+  ++argc;
+  if(argv) argv[argc]=0;
 
+  int offset_from_orig = required_space + sizeof(char*)*(argc); 
+  if(argv && esp){
+    *esp -=  sizeof(char*)*(argc); 
+    argv = *esp;
+  }
+  
+  for(i =0; i<argc; i++) required_space += sizeof(char*);
+
+  /* The extra space requiremnets are for the fake return address, 
+     argc, and the base address of argv (order listed is order in code).
+  */
+  required_space += sizeof(void*) +sizeof(int) + sizeof(char*);
   (*align_) = align(required_space, 4);
   required_space += (*align_);
-
-  *esp -= required_space;
-
-  for(i =argc-1; i>=0; i--) {
-    required_space += sizeof(char*);
-
-    if(esp && argv){
-      *esp -= sizeof(char*);
-      argv[argc] = *esp;
-    }
-  }
-
-  if(esp && argv){
-    *esp -= sizeof(char*);
-    argv = *esp;
-    *esp += sizeof(char*)*(argc+1);
-  }
-  /* The extra space requiremnets are for the fake return address, 
-     argc, the base address of argv, and the last entry in argv which 
-     shuld be NULL (order listed is order in code).
-  */
-  required_space += sizeof(void*) +sizeof(int) + sizeof(char*) + sizeof(char*);
-
+  
+  if(esp) *esp += offset_from_orig;
   (*argc_) = argc;
   free(file_name);
   return required_space;  
