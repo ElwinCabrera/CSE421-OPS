@@ -204,8 +204,10 @@ static bool validate_segment (const struct Elf32_Phdr *, struct file *);
 static bool load_segment (struct file *file, off_t ofs, uint8_t *upage,
                           uint32_t read_bytes, uint32_t zero_bytes,
                           bool writable);
-static uint32_t stack_frame_size(const char *file_name, void **esp,int *argc ,char **argv, uint32_t *align);
-uint32_t align(uint32_t current_pos, const uint32_t bytes);
+static size_t stack_frame_size(const char *file_name_, int *argc_ ,char **argv, void **esp, uint8_t *align_);
+uint8_t align(uint32_t size, const uint32_t align_bytes);
+char* deep_copy_string(const char* string_);
+void debug_stats(char **argv , int argc, int sfs, void **esp, bool print_stack, bool argv_stack, bool extra);
 
 /* Loads an ELF executable from FILE_NAME into the current thread.
    Stores the executable's entry point into *EIP
@@ -453,75 +455,55 @@ setup_stack (void **esp, const char *file_name_)
         palloc_free_page (kpage);
         return success;
       }
-
-      *esp =  (PHYS_BASE);
-
-      int argc;
-      uint32_t align=0;
-      char **argv =malloc(3*sizeof(char*));
-      uint32_t sf = stack_frame_size(file_name_, esp, &argc, argv, &align);
-      //char **argv =malloc(argc*sizeof(char*));
-      //stack_frame_size(file_name_, esp, &argc, argv,&align);
+      *esp = PHYS_BASE;
+      int argc; 
+      uint8_t align =0;
+      char **argv;
+     
+      size_t sfs = stack_frame_size(file_name_, &argc ,NULL, NULL, &align);
+      argv = calloc((size_t) argc,sizeof(char*));
+      stack_frame_size(file_name_, &argc , argv, esp, &align);
       
-      if (*esp != PHYS_BASE) printf("WARNING: esp not at PHYS_BASE\n");
-      
-
-      void *fake_ra = (void*) 0x12345678;
       int i;
 
-      printf("\nstack frame size is %d\n", sf);
-      printf("argc = %d\n\n", argc);
-      
-
+      char *file_name = deep_copy_string(file_name_);
       char *save_ptr, *token;
-
-      char *file_name = malloc(strlen(file_name_)*sizeof(char)+1);
-      strlcpy(file_name, file_name_, strlen(file_name_)+1);
-  
-  
+      
       for(token = strtok_r(file_name, " ", &save_ptr); 
         token != NULL; token = strtok_r(NULL, " ", &save_ptr)){
-          int size = strlen(token)+1;
-          if(argv) {
-            *esp -= size;
-            memcpy(*esp, token, size);
-          }
-        }
+          int token_size = strlen(token)*sizeof(char)+1;
+          *esp -= token_size;
+          memcpy(*esp, token, token_size);
+          
+      }
+      if(align != 0){
+        *esp -= align;
+        memset(*esp, 0, align);
+      }
 
-
-        for(i=argc-1; i>=0; i--){
-          *esp -= sizeof(char*);
-          memcpy(*esp, &argv[i], sizeof(char*));
-        } 
-
-        argv = *esp;
+      for(i = argc-1; i>=0; i--){
         *esp -= sizeof(char*);
-        memcpy(*esp, &argv, sizeof(char*));
+        memcpy(*esp, &argv[i], sizeof(char*));
+      }
 
-        *esp -= sizeof(int);
-        memcpy(*esp, &argc, sizeof(int)); 
-        
-        *esp -= sizeof(void*);
-        memcpy(*esp, &fake_ra, sizeof(void*));
+      void *argv_base_addr = *esp;
 
-        if(align != 0 ){
-          *esp -= align;
-          memset(*esp, 5, align);
-        }
-        
-        if(*esp +sf != PHYS_BASE) printf("allocated more memory than should\n");
-       
-        //debug
-        hex_dump((uintptr_t) ((PHYS_BASE) -sf), (void*)((PHYS_BASE) -sf), (size_t) sf, true);;
-        printf("\n");
-        for(i =0; i<3; i++) printf("argv @ pos %d = %s\n\n",i, argv[i]); 
-        //end debug
+      *esp -= sizeof(char*);
+      memcpy(*esp, &argv_base_addr, sizeof(char*));
 
+      *esp -= sizeof(int);
+      memcpy(*esp, &argc, sizeof(int));
+
+      *esp -= sizeof(void*);
+      memset(*esp, 0,sizeof(void*));
+
+      
       free(argv);
       free(file_name);
-
-      ASSERT(*esp >= PHYS_BASE+sf);
-        
+      
+      ASSERT(*esp == PHYS_BASE-sfs);
+      ASSERT(*esp < PHYS_BASE+sfs);
+      success = true;
     }
   return success;
 }
@@ -554,36 +536,32 @@ install_page (void *upage, void *kpage, bool writable)
         in the first element (it could be any random string as 
         it will be overwritten).
 */
-uint32_t stack_frame_size(const char *file_name_,void **esp ,int *argc_ ,char **argv, uint32_t *align_){
-  uint32_t required_space = 0;
-  int argc = 0, i;
+size_t stack_frame_size(const char *file_name_, int *argc_ ,char **argv, void **esp, uint8_t *align_){
+  ASSERT(argc_ != NULL);
+  size_t required_space = 0;
+  int argc = 0;
   char *save_ptr, *token;
 
-  char *file_name = malloc(strlen(file_name_)*sizeof(char)+1);
-  strlcpy(file_name, file_name_, strlen(file_name_)+1);
-  
-  
+  size_t file_name_size_full = strlen(file_name_) +1;
+  char *file_name = deep_copy_string(file_name_);
+
+  required_space += file_name_size_full * sizeof(char);
+
   for(token = strtok_r(file_name, " ", &save_ptr); 
       token != NULL; token = strtok_r(NULL, " ", &save_ptr)){
-        int s_len = strlen(token)+1;
-        required_space += s_len * sizeof(char);
-        
-        if(argv && esp) {
-          *esp -= s_len;
+         
+        if(argv && esp){
+          *esp -= strlen(token)+1;
           argv[argc] = *esp;
         }
         argc++;
   }
-  ++argc;
-  if(argv) argv[argc]=0;
-
-  int offset_from_orig = required_space + sizeof(char*)*(argc); 
-  if(argv && esp){
-    *esp -=  sizeof(char*)*(argc); 
-    argv = *esp;
-  }
-  
-  for(i =0; i<argc; i++) required_space += sizeof(char*);
+  argc++;
+  if(argv) {
+    *esp -= sizeof(char*);
+    argv[argc]= *esp;
+  } 
+  required_space += sizeof(char*) * argc;
 
   /* The extra space requiremnets are for the fake return address, 
      argc, and the base address of argv (order listed is order in code).
@@ -592,14 +570,69 @@ uint32_t stack_frame_size(const char *file_name_,void **esp ,int *argc_ ,char **
   (*align_) = align(required_space, 4);
   required_space += (*align_);
   
-  if(esp) *esp += offset_from_orig;
+  if(esp) *esp += file_name_size_full+ sizeof(char*);
   (*argc_) = argc;
   free(file_name);
   return required_space;  
 }
 
-uint32_t align(uint32_t current_pos, const uint32_t bytes){
+uint8_t align(uint32_t size, const uint32_t align_bytes){
   uint32_t offset=0;
-  while(current_pos % bytes) { offset++; current_pos++; } 
+  while(size % align_bytes) { offset++; size++; } 
   return offset;
+}
+
+char* deep_copy_string(const char* string_){
+  size_t string_size = strlen(string_) +1;
+  char *string = calloc(string_size, sizeof(char));
+  strlcpy(string, string_, string_size);
+  return string;
+}
+
+void debug_stats(char **argv, int argc, int sfs, void **esp, bool print_stack, bool argv_stack, bool extra){
+  int i;
+  int align_ = align(sfs, 4);
+  int frame_size = sfs +align(sfs,4);
+  
+
+  if(argv_stack ){
+    if(argv && argc){
+      printf("\n");
+      printf("printing stack where argv is located:\n");
+      hex_dump((uintptr_t) 0xc1407068 /*argv*/  , (void*) argv, (size_t) (argc+2)*sizeof(char*), true);
+      printf("Argument count = %d\n", argc);
+      printf("address of argv %p\n", argv);
+      for(i = 0; i<argc; i++) printf("address of argv[%d] %p\n", i, argv[i]);
+      printf("\n");
+    } else {
+      printf("argv or argc is NULL could not print argv stack\n");
+    }
+  }
+  
+  if(print_stack){
+    
+    printf("\n");
+    printf("printing program stack\n");
+    hex_dump((uintptr_t) (PHYS_BASE -frame_size), (void*)(PHYS_BASE -frame_size), (size_t) frame_size, true);
+    printf("\n");
+    if(argv && argc){
+      for(i =0; i<argc; i++) printf("argv[%d] '%s'\n\n",i, argv[i]);
+    } else {
+      printf("Tried to print argv but argc or argc is NULL:\n");
+      printf("Here is hexdump where argc is pointing:\n");
+      hex_dump((uintptr_t) 0xc1407068 /*argv*/, (void*) argv, (size_t) (argc+1)*sizeof(char*), true);
+    }
+  }
+
+  
+  if(extra){
+    if(*esp < PHYS_BASE-sfs) printf("WARNING: Allocated more memory than should\n");
+    if(*esp != PHYS_BASE) printf("WARNING: esp not at PHYS_PASE, esp at '%p'\n", esp);
+    
+    printf("Total stack space used = %d\n", frame_size);
+    printf("Actual space needed = %d\n",frame_size-align_);
+    printf("Wasted space = %d\n\n", align_);
+  }
+      
+
 }
