@@ -500,6 +500,8 @@ setup_stack (void **esp, const char *file_name_)
       
       free(argv);
       free(file_name);
+      printf("\nstack for process\n");
+      hex_dump((uintptr_t) (PHYS_BASE -sfs), (void*)(PHYS_BASE -sfs), (size_t) sfs, true);
       
       ASSERT(*esp == PHYS_BASE-sfs);
       ASSERT(*esp < PHYS_BASE+sfs);
