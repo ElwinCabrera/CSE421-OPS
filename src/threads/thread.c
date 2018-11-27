@@ -4,6 +4,8 @@
 #include <random.h>
 #include <stdio.h>
 #include <string.h>
+#include <error-nr.h>
+#include "threads/malloc.h"
 #include "threads/flags.h"
 #include "threads/interrupt.h"
 #include "threads/intr-stubs.h"
@@ -93,11 +95,14 @@ thread_init (void)
   list_init (&ready_list);
   list_init (&all_list);
 
+  
   /* Set up a thread structure for the running thread. */
   initial_thread = running_thread ();
   init_thread (initial_thread, "main", PRI_DEFAULT);
   initial_thread->status = THREAD_RUNNING;
   initial_thread->tid = allocate_tid ();
+
+  
 }
 
 /* Starts preemptive thread scheduling by enabling interrupts.
@@ -197,6 +202,11 @@ thread_create (const char *name, int priority,
   sf = alloc_frame (t, sizeof *sf);
   sf->eip = switch_entry;
   sf->ebp = 0;
+
+  list_init(&t->children_list);  
+  t->exit_status = NO_EXIT;
+  t->parent_tid = -1;
+  t->process_name = NULL;
 
   /* Add to run queue. */
   thread_unblock (t);
@@ -578,6 +588,18 @@ allocate_tid (void)
 
   return tid;
 }
+
+struct thread  *find_thread_by_tid(tid_t tid){
+  struct list_elem *e;
+
+  for (e = list_begin (&all_list); e != list_end (&all_list);
+       e = list_next (e)){
+
+      struct thread *t = list_entry (e, struct thread, allelem);
+      if(t->tid == tid) return t;
+    }
+    return NULL;
+} 
 
 /* Offset of `stack' member within `struct thread'.
    Used by switch.S, which can't figure it out on its own. */

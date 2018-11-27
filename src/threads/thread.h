@@ -4,6 +4,7 @@
 #include <debug.h>
 #include <list.h>
 #include <stdint.h>
+//#include "userprog/process.h"
 
 /* States in a thread's life cycle. */
 enum thread_status
@@ -96,7 +97,14 @@ struct thread
 #ifdef USERPROG
     /* Owned by userprog/process.c. */
     uint32_t *pagedir;                  /* Page directory. */
+    struct list children_list;
+    struct list_elem childelem;
+    int exit_status;
+    tid_t parent_tid;
+    char *process_name;
 #endif
+
+    
 
     /* Owned by thread.c. */
     unsigned magic;                     /* Detects stack overflow. */
@@ -137,5 +145,7 @@ int thread_get_nice (void);
 void thread_set_nice (int);
 int thread_get_recent_cpu (void);
 int thread_get_load_avg (void);
+
+struct thread  *find_thread_by_tid(tid_t tid);
 
 #endif /* threads/thread.h */

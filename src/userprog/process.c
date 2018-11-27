@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <error-nr.h>
 #include "userprog/gdt.h"
 #include "userprog/pagedir.h"
 #include "userprog/tss.h"
@@ -18,9 +19,11 @@
 #include "threads/thread.h"
 #include "threads/vaddr.h"
 #include "threads/malloc.h"
+#include "threads/synch.h"
 
 static thread_func start_process NO_RETURN;
 static bool load (const char *cmdline, void (**eip) (void), void **esp);
+char* deep_copy_string(const char* string_);
 
 /* Starts a new thread running a user program loaded from
    FILENAME.  The new thread may be scheduled (and may even exit)
@@ -31,7 +34,15 @@ process_execute (const char *file_name)
 {
   char *fn_copy;
   tid_t tid;
+  if(!(proc_cond_lock && process_cond)){
+    proc_cond_lock = malloc(sizeof(struct lock));
+    process_cond = malloc(sizeof(struct condition));
+    lock_init(proc_cond_lock);
+    cond_init(process_cond);
+  }
+  struct thread *parent = thread_current();
 
+ 
   /* Make a copy of FILE_NAME.
      Otherwise there's a race between the caller and load(). */
   fn_copy = palloc_get_page (0);
@@ -41,8 +52,18 @@ process_execute (const char *file_name)
 
   /* Create a new thread to execute FILE_NAME. */
   tid = thread_create (file_name, PRI_DEFAULT, start_process, fn_copy);
-  if (tid == TID_ERROR)
-    palloc_free_page (fn_copy); 
+  if (tid == TID_ERROR){
+    palloc_free_page (fn_copy);
+  }else {
+    struct thread *child = find_thread_by_tid(tid);
+    child->parent_tid = parent->tid;
+    char *file_name_ = deep_copy_string(file_name);
+      char *save_ptr, *process_name;
+      process_name = strtok_r(file_name, " ", &save_ptr);
+      child->process_name = process_name;
+      free(file_name_);
+    //list_push_back(&parent->children_list, &child->childelem);
+  }
   return tid;
 }
 
@@ -90,8 +111,29 @@ start_process (void *file_name_)
 int
 process_wait (tid_t child_tid UNUSED) 
 {
-  while(true) thread_yield();
-  return -1;
+  int ret;
+  lock_acquire(proc_cond_lock);
+  cond_wait(process_cond, proc_cond_lock);
+  lock_release(proc_cond_lock);
+
+  struct thread *t = thread_current();
+  struct thread *c = find_thread_by_tid(child_tid);
+  if(!c) return EXIT_FAILURE; 
+
+  if(c->parent_tid != t->tid || c->tid != child_tid) printf("you wish loser\n");
+
+  if(c->exit_status != EXIT_SUCCESS) 
+    ret = EXIT_FAILURE;
+  else
+    ret = c->exit_status;
+
+  
+  free(proc_cond_lock);
+  free(process_cond);
+  //printf("returning %d to parent\n",ret);
+  //list_remove(&c->childelem);
+  
+  return ret;
 }
 
 /* Free the current process's resources. */
@@ -100,6 +142,8 @@ process_exit (void)
 {
   struct thread *cur = thread_current ();
   uint32_t *pd;
+  //if(cur->tid ==1) return;
+  printf("%s: exit(%d)\n", cur->process_name, cur->exit_status);
 
   /* Destroy the current process's page directory and switch back
      to the kernel-only page directory. */
@@ -134,6 +178,8 @@ process_activate (void)
      interrupts. */
   tss_update ();
 }
+
+ 
 
 /* We load ELF binaries.  The following definitions are taken
    from the ELF specification, [ELF1], more-or-less verbatim.  */
@@ -206,7 +252,6 @@ static bool load_segment (struct file *file, off_t ofs, uint8_t *upage,
                           bool writable);
 static size_t stack_frame_size(const char *file_name_, int *argc_ ,char **argv, void **esp, uint8_t *align_);
 uint8_t align(uint32_t size, const uint32_t align_bytes);
-char* deep_copy_string(const char* string_);
 void debug_stats(char **argv , int argc, int sfs, void **esp, bool print_stack, bool argv_stack, bool extra);
 
 /* Loads an ELF executable from FILE_NAME into the current thread.
@@ -432,7 +477,7 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
           return false; 
         }
 
-      /* Advance. */
+      /* Advance.*/
       read_bytes -= page_read_bytes;
       zero_bytes -= page_zero_bytes;
       upage += PGSIZE;
@@ -480,6 +525,7 @@ setup_stack (void **esp, const char *file_name_)
         *esp -= align;
         memset(*esp, 0, align);
       }
+      //for(i =0; i<argc; i++) printf("argv[%d]: '%s'\n",i,argv[i]);
 
       for(i = argc-1; i>=0; i--){
         *esp -= sizeof(char*);
@@ -492,6 +538,7 @@ setup_stack (void **esp, const char *file_name_)
       memcpy(*esp, &argv_base_addr, sizeof(char*));
 
       *esp -= sizeof(int);
+      argc -=1;
       memcpy(*esp, &argc, sizeof(int));
 
       *esp -= sizeof(void*);
@@ -503,9 +550,8 @@ setup_stack (void **esp, const char *file_name_)
       printf("\nstack for process\n");
       hex_dump((uintptr_t) (PHYS_BASE -sfs), (void*)(PHYS_BASE -sfs), (size_t) sfs, true);
       
-      ASSERT(*esp == PHYS_BASE-sfs);
-      ASSERT(*esp < PHYS_BASE+sfs);
-      success = true;
+      //ASSERT(*esp == PHYS_BASE-sfs);
+      //ASSERT(*esp < PHYS_BASE+sfs);
     }
   return success;
 }
@@ -544,16 +590,19 @@ size_t stack_frame_size(const char *file_name_, int *argc_ ,char **argv, void **
   int argc = 0;
   char *save_ptr, *token;
 
-  size_t file_name_size_full = strlen(file_name_) +1;
+  size_t file_name_size_full = 0;
   char *file_name = deep_copy_string(file_name_);
 
   required_space += file_name_size_full * sizeof(char);
 
   for(token = strtok_r(file_name, " ", &save_ptr); 
       token != NULL; token = strtok_r(NULL, " ", &save_ptr)){
+        int token_size = strlen(token)+1;
+        required_space += token_size * sizeof(char);
+        file_name_size_full += token_size *sizeof(char);
          
         if(argv && esp){
-          *esp -= strlen(token)+1;
+          *esp -= token_size;
           argv[argc] = *esp;
         }
         argc++;
@@ -590,6 +639,9 @@ char* deep_copy_string(const char* string_){
   strlcpy(string, string_, string_size);
   return string;
 }
+
+
+
 
 void debug_stats(char **argv, int argc, int sfs, void **esp, bool print_stack, bool argv_stack, bool extra){
   int i;
