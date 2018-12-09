@@ -34,12 +34,7 @@ process_execute (const char *file_name)
 {
   char *fn_copy;
   tid_t tid;
-  if(!(proc_cond_lock && process_cond)){
-    proc_cond_lock = malloc(sizeof(struct lock));
-    process_cond = malloc(sizeof(struct condition));
-    lock_init(proc_cond_lock);
-    cond_init(process_cond);
-  }
+  
   struct thread *parent = thread_current();
 
  
@@ -547,8 +542,8 @@ setup_stack (void **esp, const char *file_name_)
       
       free(argv);
       free(file_name);
-      printf("\nstack for process\n");
-      hex_dump((uintptr_t) (PHYS_BASE -sfs), (void*)(PHYS_BASE -sfs), (size_t) sfs, true);
+      /*printf("\nstack for process\n");
+      hex_dump((uintptr_t) (PHYS_BASE -sfs), (void*)(PHYS_BASE -sfs), (size_t) sfs, true);*/
       
       //ASSERT(*esp == PHYS_BASE-sfs);
       //ASSERT(*esp < PHYS_BASE+sfs);
