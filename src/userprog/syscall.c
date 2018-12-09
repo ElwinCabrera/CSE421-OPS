@@ -21,6 +21,8 @@ typedef int pid_t;
 
 struct semaphore filesys_sema;
 
+
+
 static void syscall_handler (struct intr_frame *);
 void halt (void);
 void exit (int status, struct intr_frame *f UNUSED);
@@ -38,6 +40,7 @@ void close (int fd);
 
 void* is_valid_pointer(const void *usr_ptr);
 bool is_valid_buffer(char *buffer, uint32_t size);
+struct thread_file* find_file_from_opend(struct list *open_files, int fd);
 
 
 
@@ -58,16 +61,6 @@ static void
 syscall_handler (struct intr_frame *f UNUSED) 
 {
   
-  /*printf("stack for esp, %p\n",f->esp);
-  hex_dump((uintptr_t) (f->esp), (void*)(f->esp ), (size_t) 52, true);
-  printf("\n");
-
-  printf("stack for eax, %p\n",f->eax);
-  hex_dump((uintptr_t) (f->eax), (void*)(f->eax ), (size_t) 52, true);
-  printf("\n");*/
-
-
-
   unsigned *esp = f->esp;
   is_valid_pointer(esp);
 
@@ -75,35 +68,39 @@ syscall_handler (struct intr_frame *f UNUSED)
     //printf("selected system call %d, HALT\n",*esp);
     halt();
   }else if(*esp == SYS_EXIT){
-    printf("selected system call %d, EXIT\n",*esp);
+    //printf("selected system call %d, EXIT\n",*esp);
 
     int *status = esp+1;
-    
     exit(*status, f);
     
   }else if(*esp == SYS_EXEC){
     //printf("selected system call %d, EXEC\n",*esp);
+    
   }else if(*esp == SYS_WAIT){
-    printf("selected system call %d, WAIT\n",*esp);
+    //printf("selected system call %d, WAIT\n",*esp);
     tid_t *tid = esp+1;
-    printf("Thread id to wait %d\n", *tid);
+    //printf("Thread id to wait %d\n", *tid);
     f->eax = wait(*tid);
   }else if(*esp == SYS_CREATE){
-    printf("selected system call %d, CREATE\n",*esp);
+    //printf("selected system call %d, CREATE\n",*esp);
     char **file = is_valid_pointer(esp+4);
     uint8_t *initial_size = is_valid_pointer(esp+5);
-    printf("file: %s, size: %d\n",*file, *initial_size);
+    //printf("file: %s, size: %d\n",*file, *initial_size);
     f->eax = create(*file, *initial_size);
   }else if(*esp == SYS_REMOVE){
-    printf("selected system call %d, REMOVE\n",*esp);
+    //printf("selected system call %d, REMOVE\n",*esp);
     const char **file= esp+1;
-    printf("file %s \n",*file);
+    //printf("file %s \n",*file);
     f->eax = remove(*file);
 
   }else if(*esp == SYS_OPEN){
     //printf("selected system call %d, OPEN\n",*esp);
+    int *fd = esp+1;
+    f->eax = open(*fd);
   }else if(*esp == SYS_FILESIZE){
     //printf("selected system call %d, FILEZISE\n",*esp);
+    int *fd = esp+1;
+    f->eax = filesize(*fd);
   }else if(*esp == SYS_READ){
     //printf("selected system call %d, READ\n",*esp);
     int *fd= esp+1;
@@ -113,7 +110,7 @@ syscall_handler (struct intr_frame *f UNUSED)
     if(is_valid_buffer(*buffer, *size)) f->eax = read(fd, *buffer, size);
      
   }else if(*esp == SYS_WRITE){
-    printf("selected system call %d, WRITE\n",*esp);
+    //printf("selected system call %d, WRITE\n",*esp);
     
     int *fd= esp+1;
     char **buffer= esp+2;
@@ -124,26 +121,23 @@ syscall_handler (struct intr_frame *f UNUSED)
 
   }else if(*esp == SYS_SEEK){
     //printf("selected system call %d, SEEK\n",*esp);
+    int *fd = esp+1;
+    unsigned *pos = esp+2;
+    seek(*fd, *pos);
   }else if(*esp == SYS_TELL){
     //printf("selected system call %d, TELL\n",*esp);
+    int *fd = esp+1;
+    f->eax = tell(*fd);
   }else if(*esp == SYS_CLOSE){
-    printf("selected system call %d, CLOSE\n",*esp);
+    //printf("selected system call %d, CLOSE\n",*esp);
     tid_t *fd = esp+1;
-    printf("tid %d\n", *fd);
+    //printf("tid %d\n", *fd);
     close(*fd);
   } else {
     //invalid system call number
     //printf("invalid system call # %d", *esp);
     exit(UNKNOWN_FAILURE,f);
   }
-
-
-  /*printf("stack for eax, %p\n",f->eax);
-  hex_dump((uintptr_t) (f->eax), (void*)(f->eax ), (size_t) 52, true);
-  printf("\n");*/
-
-  //intr_dump_frame(f);
-  //thread_exit ();
 }
 
 void halt (void) {
@@ -152,7 +146,7 @@ void halt (void) {
 
 void exit(int status, struct intr_frame *f UNUSED) {
   
-  printf("status %d\n", status);
+  //printf("status %d\n", status);
 
   if(thread_current()->pagedir == NULL) status = EXIT_FAILURE;
 
@@ -192,13 +186,29 @@ bool remove (const char *file){
 }
 
 int open (const char *file){ 
-  
-  return 0;
+  sema_down(&filesys_sema);
+  struct file *f = filesys_open(file);
+  sema_up(&filesys_sema);
+  if(f){
+    struct thread *t = thread_current();
+    struct thread_file *tf = malloc(sizeof(struct thread_file));
+    tf->file = f;
+    tf->fd = t->last_fd;
+    list_push_back(&t->open_files, &tf->thread_file_elem);
+    t->last_fd += 1;
+    return tf->fd;
+  }
+  return -1;
 }
 
 int filesize (int fd) {
-  
-  return 0;
+  int size= 0;
+  struct thread *t = thread_current();
+  struct thread_file *tf = find_file_from_opend(&t->open_files, fd);
+  sema_down(&filesys_sema);
+  size = file_length(tf->file);
+  sema_up(&filesys_sema);
+  return size;
 }
 
 int read (int *fd, void *buffer, unsigned *size){
@@ -210,6 +220,15 @@ int read (int *fd, void *buffer, unsigned *size){
       buffer_[i] = input_getc();
     }
     bytes_read += size;
+  } else {
+    struct thread *t = thread_current();
+    struct thread_file *tf = find_file_from_opend(&t->open_files, fd);
+    if(tf){
+      sema_down(&filesys_sema);
+      bytes_read = file_write(tf->file, buffer, (off_t)size);
+      sema_up(&filesys_sema);
+    }
+
   }
   
   return bytes_read;
@@ -231,25 +250,45 @@ int write (int *fd_, const void *buffer, unsigned *size_){
       bytes_written += size_buf;
     }
 
+  } else {
+    struct thread *t = thread_current();
+    struct thread_file *tf = find_file_from_opend(&t->open_files, fd);
+    if(tf){
+      sema_down(&filesys_sema);
+      bytes_written = file_write(tf->file, buffer, (off_t)size);
+      sema_up(&filesys_sema);
+    }
+
   }
 
   return bytes_written;
   
 }
 
-/*void seek (int fd, unsigned position) {
-  
+void seek (int fd, unsigned position) {
+  struct thread *t = thread_current();
+  struct thread_file *tf = find_file_from_opend(&t->open_files, fd);
+  sema_down(&filesys_sema);
+  file_seek(tf->file, position);
+  sema_up(&filesys_sema);
 }
 
 unsigned tell (int fd) {
-   
-   return 0;
-}*/
+  int curr_pos= 0;
+  struct thread *t = thread_current();
+  struct thread_file *tf = find_file_from_opend(&t->open_files, fd);
+  sema_down(&filesys_sema);
+  curr_pos = file_tell(tf->file);
+  sema_up(&filesys_sema);
+  return curr_pos;
+}
 
 void close (int fd){
-  //sema_down(&filesys_sema);
-
-  //sema_up(&filesys_sema);
+  struct thread *t = thread_current();
+  struct thread_file *tf = find_file_from_opend(&t->open_files, fd);
+  sema_down(&filesys_sema);
+  file_close(tf->file);
+  sema_up(&filesys_sema);
 }
 
 void* is_valid_pointer(const void *usr_ptr){
@@ -265,4 +304,13 @@ bool is_valid_buffer(char *buffer, uint32_t size){
   for(; i<size; i++)
     if(!(is_user_vaddr(&b[i]) || &b[i] < ((void *) 0x08048000) )) return false;
   return true;
+}
+
+struct thread_file* find_file_from_opend(struct list *open_files, int fd){
+  struct list_elem *e;
+      for (e = list_begin (open_files); e != list_end (open_files); e = list_next (e)){
+          struct thread_file *tf = list_entry (e, struct thread_file, thread_file_elem);
+          if(tf->fd == fd) return tf;
+        }
+   return NULL;
 }

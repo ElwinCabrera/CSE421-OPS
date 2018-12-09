@@ -4,7 +4,7 @@
 #include <debug.h>
 #include <list.h>
 #include <stdint.h>
-//#include "userprog/process.h"
+#include "filesys/file.h"
 
 /* States in a thread's life cycle. */
 enum thread_status
@@ -102,6 +102,8 @@ struct thread
     int exit_status;
     tid_t parent_tid;
     char *process_name;
+    struct list open_files;
+    int last_fd;
 #endif
 
     
@@ -109,6 +111,12 @@ struct thread
     /* Owned by thread.c. */
     unsigned magic;                     /* Detects stack overflow. */
   };
+
+struct thread_file{
+  int fd;
+  struct file* file;
+  struct list_elem thread_file_elem;
+};
 
 /* If false (default), use round-robin scheduler.
    If true, use multi-level feedback queue scheduler.
