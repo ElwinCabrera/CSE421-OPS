@@ -20,6 +20,7 @@
 #include "threads/vaddr.h"
 #include "threads/malloc.h"
 #include "threads/synch.h"
+#include "syscall.h"
 
 static thread_func start_process NO_RETURN;
 static bool load (const char *cmdline, void (**eip) (void), void **esp);
@@ -115,12 +116,13 @@ process_wait (tid_t child_tid UNUSED)
   struct thread *c = find_thread_by_tid(child_tid);
   if(!c) return EXIT_FAILURE; 
 
-  if(c->parent_tid != t->tid || c->tid != child_tid) printf("you wish loser\n");
+  if(c->parent_tid != t->tid || c->tid != child_tid) return EXIT_FAILURE;
 
   if(c->exit_status != EXIT_SUCCESS) 
     ret = EXIT_FAILURE;
   else
     ret = c->exit_status;
+
 
   
   free(proc_cond_lock);
@@ -139,7 +141,12 @@ process_exit (void)
   uint32_t *pd;
   //if(cur->tid ==1) return;
   printf("%s: exit(%d)\n", cur->process_name, cur->exit_status);
-
+  sema_down(filesys_sema);
+  close_all_open_files();
+  //file_close(cur->process_file);
+  //file_allow_write(cur->process_file);
+  sema_up(filesys_sema);
+  
   /* Destroy the current process's page directory and switch back
      to the kernel-only page directory. */
   pd = cur->pagedir;
@@ -155,6 +162,7 @@ process_exit (void)
       cur->pagedir = NULL;
       pagedir_activate (NULL);
       pagedir_destroy (pd);
+      
     }
 }
 
@@ -364,7 +372,10 @@ load (const char *file_name, void (**eip) (void), void **esp)
   *eip = (void (*) (void)) ehdr.e_entry;
 
   success = true;
+  sema_down(filesys_sema);
   file_deny_write(file);
+  sema_up(filesys_sema);
+  t->process_file = file;
 
  done:
   /* We arrive here whether the load is successful or not. */

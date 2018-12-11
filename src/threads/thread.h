@@ -6,6 +6,7 @@
 #include <stdint.h>
 #include "filesys/file.h"
 
+
 /* States in a thread's life cycle. */
 enum thread_status
   {
@@ -102,6 +103,7 @@ struct thread
     int exit_status;
     tid_t parent_tid;
     char *process_name;
+    struct file *process_file;
     struct list open_files;
     int last_fd;
 #endif
